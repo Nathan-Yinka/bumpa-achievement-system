@@ -1,0 +1,129 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bumpa
+      POSTGRES_PASSWORD: bumpa
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bumpa -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: bumpa
+      RABBITMQ_DEFAULT_PASS: bumpa
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: api-gateway
+    environment:
+      NODE_ENV: development
+      API_GATEWAY_PORT: 3000
+      PURCHASE_SERVICE_URL: http://purchase-service:3001
+      LOYALTY_SERVICE_URL: http://loyalty-service:3002
+      RABBITMQ_URL: amqp://bumpa:bumpa@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  purchase-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: purchase-service
+    environment:
+      NODE_ENV: development
+      PURCHASE_SERVICE_PORT: 3001
+      PURCHASE_DATABASE_URL: postgresql://bumpa:bumpa@postgres:5432/purchase_db?schema=public
+      RABBITMQ_URL: amqp://bumpa:bumpa@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  loyalty-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: loyalty-service
+    environment:
+      NODE_ENV: development
+      LOYALTY_SERVICE_PORT: 3002
+      LOYALTY_DATABASE_URL: postgresql://bumpa:bumpa@postgres:5432/loyalty_db?schema=public
+      RABBITMQ_URL: amqp://bumpa:bumpa@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  cashback-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: cashback-service
+    environment:
+      NODE_ENV: development
+      CASHBACK_SERVICE_PORT: 3004
+      CASHBACK_DATABASE_URL: postgresql://bumpa:bumpa@postgres:5432/cashback_db?schema=public
+      RABBITMQ_URL: amqp://bumpa:bumpa@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      PAYMENT_PROVIDER: mock
+      CASHBACK_AMOUNT_KOBO: 30000
+    ports:
+      - "3004:3004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
