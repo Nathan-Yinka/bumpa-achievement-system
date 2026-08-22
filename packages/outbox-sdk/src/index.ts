@@ -1,7 +1,7 @@
 import { DynamicModule, Inject, Injectable, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression, ScheduleModule } from '@nestjs/schedule';
 import { BrokerService } from '@bumpa/broker-sdk';
-import { EnvKey, getRequiredEnv } from '@bumpa/config-sdk';
+import { getRedisConfig } from '@bumpa/config-sdk';
 import { type DomainEvent, OutboxStatus } from '@bumpa/events-sdk';
 import IORedis from 'ioredis';
 import { DataSource, type EntityTarget, type FindOptionsWhere, type ObjectLiteral, type Repository } from 'typeorm';
@@ -61,7 +61,7 @@ export class ScheduledOutboxPublisher implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.redis = new IORedis(getRequiredEnv(EnvKey.RedisUrl), { maxRetriesPerRequest: null });
+    this.redis = new IORedis({ ...getRedisConfig(), maxRetriesPerRequest: null });
     this.repository = this.dataSource.getRepository(this.options.entity);
   }
 

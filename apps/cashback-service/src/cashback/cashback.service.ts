@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { EnvKey, getNumberEnv, getRequiredEnv } from '@bumpa/config-sdk';
+import { EnvKey, getNumberEnv, getRedisConfig } from '@bumpa/config-sdk';
 import {
   createDomainEvent,
   createReadableId,
@@ -41,7 +41,7 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.redis = new IORedis(getRequiredEnv(EnvKey.RedisUrl), { maxRetriesPerRequest: null });
+    this.redis = new IORedis({ ...getRedisConfig(), maxRetriesPerRequest: null });
     this.queue = new Queue<CashbackJob>(JobQueueName.CashbackPayments, { connection: this.redis });
     this.worker = new Worker<CashbackJob>(
       JobQueueName.CashbackPayments,

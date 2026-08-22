@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@bumpa/broker-sdk": ["packages/broker-sdk/src"],
+      "@bumpa/config-sdk": ["packages/config-sdk/src"],
+      "@bumpa/events-sdk": ["packages/events-sdk/src"],
+      "@bumpa/logger-sdk": ["packages/logger-sdk/src"],
+      "@bumpa/outbox-sdk": ["packages/outbox-sdk/src"]
+    }
+  }
+}

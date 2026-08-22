@@ -59,20 +59,16 @@ export class LoyaltyService {
         ['id'],
       );
 
-      await manager.query(
-        `
-          INSERT INTO user_stats ("userId", "purchaseCount", "totalSpendKobo", "updatedAt")
-          VALUES ($1, 1, $2, NOW())
-          ON CONFLICT ("userId")
-          DO UPDATE SET
-            "purchaseCount" = user_stats."purchaseCount" + 1,
-            "totalSpendKobo" = user_stats."totalSpendKobo" + EXCLUDED."totalSpendKobo",
-            "updatedAt" = NOW()
-        `,
-        [event.payload.userId, event.payload.amountKobo],
-      );
-
-      const stats = await manager.findOneByOrFail(UserStats, { userId: event.payload.userId });
+      const stats =
+        (await manager.findOne(UserStats, { where: { userId: event.payload.userId } })) ??
+        manager.create(UserStats, {
+          userId: event.payload.userId,
+          purchaseCount: 0,
+          totalSpendKobo: 0,
+        });
+      stats.purchaseCount += 1;
+      stats.totalSpendKobo += event.payload.amountKobo;
+      await manager.save(UserStats, stats);
       const configs = await manager.find(AchievementConfig, {
         where: { active: true },
         order: { groupKey: 'ASC', sortOrder: 'ASC' },

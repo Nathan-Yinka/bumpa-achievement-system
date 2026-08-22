@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BrokerModule } from '@bumpa/broker-sdk';
-import { EnvKey } from '@bumpa/config-sdk';
+import { EnvKey, getPostgresConfig } from '@bumpa/config-sdk';
 import { ServiceName } from '@bumpa/events-sdk';
 import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
 import { AchievementConfig } from './entities/achievement-config.entity';
@@ -31,10 +31,9 @@ const entities = [
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
-      type: 'postgres',
-      url: process.env[EnvKey.LoyaltyDatabaseUrl],
+      ...getPostgresConfig(EnvKey.LoyaltyDatabaseName),
       entities,
-      synchronize: process.env.NODE_ENV !== 'production',
+      synchronize: process.env[EnvKey.NodeEnv] !== 'production',
     }),
     BrokerModule.forRoot({ serviceName: ServiceName.Loyalty }),
     LoyaltyModule,

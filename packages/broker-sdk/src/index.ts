@@ -1,5 +1,5 @@
 import { DynamicModule, Global, Inject, Injectable, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { getRequiredEnv } from '@bumpa/config-sdk';
+import { getRabbitMqConfig } from '@bumpa/config-sdk';
 import type { DomainEvent } from '@bumpa/events-sdk';
 import * as amqp from 'amqplib';
 
@@ -46,7 +46,7 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
   constructor(@Inject(BROKER_MODULE_OPTIONS) private readonly options: BrokerModuleOptions) {}
 
   async onModuleInit(): Promise<void> {
-    this.connection = await amqp.connect(getRequiredEnv('RABBITMQ_URL'));
+    this.connection = await amqp.connect(getRabbitMqConfig());
     this.channel = await this.connection.createChannel();
     await this.channel.assertExchange(BrokerExchange.Events, 'topic', { durable: true });
     await this.channel.assertExchange(BrokerExchange.DeadLetter, 'topic', { durable: true });

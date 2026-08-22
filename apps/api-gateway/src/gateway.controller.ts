@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { EnvKey } from '@bumpa/config-sdk';
+import { EnvKey, getServiceBaseUrl } from '@bumpa/config-sdk';
 import { CORRELATION_ID_HEADER } from '@bumpa/logger-sdk';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 
@@ -28,11 +28,11 @@ export class GatewayController {
   }
 
   private get purchaseServiceUrl(): string {
-    return process.env[EnvKey.PurchaseServiceUrl] ?? 'http://localhost:3001';
+    return getServiceBaseUrl(EnvKey.PurchaseServiceHost, EnvKey.PurchaseServicePort, 'localhost', 3001);
   }
 
   private get loyaltyServiceUrl(): string {
-    return process.env[EnvKey.LoyaltyServiceUrl] ?? 'http://localhost:3002';
+    return getServiceBaseUrl(EnvKey.LoyaltyServiceHost, EnvKey.LoyaltyServicePort, 'localhost', 3002);
   }
 
   private async readJson(response: Response): Promise<unknown> {
