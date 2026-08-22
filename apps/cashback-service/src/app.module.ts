@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BrokerModule } from '@bumpa/broker-sdk';
+import { EnvKey } from '@bumpa/config-sdk';
 import { ServiceName } from '@bumpa/events-sdk';
 import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
 import { CashbackModule } from './cashback/cashback.module';
@@ -17,7 +18,7 @@ const entities = [CashbackTransaction, OutboxEvent, ProcessedEvent];
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      url: process.env.CASHBACK_DATABASE_URL,
+      url: process.env[EnvKey.CashbackDatabaseUrl],
       entities,
       synchronize: process.env.NODE_ENV !== 'production',
     }),

@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { OutboxLockKey } from '@bumpa/events-sdk';
+import { OutboxModule } from '@bumpa/outbox-sdk';
 import { LoyaltyConfigSeederService } from '../config/loyalty-config-seeder.service';
 import { AchievementConfig } from '../entities/achievement-config.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
@@ -10,7 +12,6 @@ import { UserBadge } from '../entities/user-badge.entity';
 import { UserProjection } from '../entities/user-projection.entity';
 import { UserStats } from '../entities/user-stats.entity';
 import { PurchaseCompletedConsumer } from '../messaging/purchase-completed.consumer';
-import { OutboxPublisherService } from '../outbox/outbox-publisher.service';
 import { RuleEngineService } from '../rules/rule-engine.service';
 import { LoyaltyController } from './loyalty.controller';
 import { LoyaltyService } from './loyalty.service';
@@ -27,14 +28,16 @@ export const loyaltyEntities = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature(loyaltyEntities)],
+  imports: [
+    TypeOrmModule.forFeature(loyaltyEntities),
+    OutboxModule.forRoot({ entity: OutboxEvent, lockKey: OutboxLockKey.Loyalty }),
+  ],
   controllers: [LoyaltyController],
   providers: [
     LoyaltyService,
     RuleEngineService,
     LoyaltyConfigSeederService,
     PurchaseCompletedConsumer,
-    OutboxPublisherService,
   ],
 })
 export class LoyaltyModule {}

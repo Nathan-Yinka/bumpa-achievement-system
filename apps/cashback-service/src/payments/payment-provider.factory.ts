@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { EnvKey } from '@bumpa/config-sdk';
 import { PaymentProviderName } from '@bumpa/events-sdk';
 import { MockPaymentProvider } from './mock-payment.provider';
 import { PaystackPaymentProvider } from './paystack-payment.provider';
@@ -12,7 +13,7 @@ export class PaymentProviderFactory {
   ) {}
 
   getProvider(): PaymentProvider {
-    if (process.env.PAYMENT_PROVIDER === PaymentProviderName.Paystack) {
+    if (process.env[EnvKey.PaymentProvider] === PaymentProviderName.Paystack) {
       return this.paystackProvider;
     }
 

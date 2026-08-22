@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BrokerModule } from '@bumpa/broker-sdk';
+import { EnvKey } from '@bumpa/config-sdk';
 import { ServiceName } from '@bumpa/events-sdk';
 import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
 import { OutboxEvent } from './entities/outbox-event.entity';
@@ -15,7 +16,7 @@ import { PurchaseModule } from './purchases/purchase.module';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      url: process.env.PURCHASE_DATABASE_URL,
+      url: process.env[EnvKey.PurchaseDatabaseUrl],
       entities: [User, Purchase, OutboxEvent],
       synchronize: process.env.NODE_ENV !== 'production',
     }),

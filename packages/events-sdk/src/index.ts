@@ -46,6 +46,25 @@ export enum PaymentProviderName {
   Paystack = 'paystack',
 }
 
+export enum BrokerQueueName {
+  LoyaltyPurchaseCompleted = 'loyalty.purchase-completed',
+  CashbackBadgeUnlocked = 'cashback.badge-unlocked',
+}
+
+export enum OutboxLockKey {
+  Purchase = 'outbox:purchase-service',
+  Loyalty = 'outbox:loyalty-service',
+  Cashback = 'outbox:cashback-service',
+}
+
+export enum JobQueueName {
+  CashbackPayments = 'cashback-payments',
+}
+
+export enum JobName {
+  SendCashback = 'send-cashback',
+}
+
 export function createReadableId(prefix: EntityIdPrefix): string {
   return `${prefix}_${randomBytes(6).toString('hex')}`;
 }

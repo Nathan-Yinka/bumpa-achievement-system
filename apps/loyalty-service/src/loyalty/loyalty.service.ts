@@ -46,6 +46,7 @@ export class LoyaltyService {
     }
 
     await this.dataSource.transaction(async (manager) => {
+      // The projection, counters, unlocks, and outbox rows move together or not at all.
       await manager.upsert(
         UserProjection,
         {
@@ -188,6 +189,7 @@ export class LoyaltyService {
         continue;
       }
 
+      // Badge unlocks are stored before publishing so cashback can be safely retried downstream.
       await manager.save(
         UserBadge,
         manager.create(UserBadge, {

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { EnvKey } from '@bumpa/config-sdk';
 import { createReadableId, EntityIdPrefix, PaymentProviderName } from '@bumpa/events-sdk';
 import type { CashbackPaymentRequest, CashbackPaymentResult, PaymentProvider } from './payment-provider';
 
@@ -7,7 +8,7 @@ export class PaystackPaymentProvider implements PaymentProvider {
   readonly name = PaymentProviderName.Paystack;
 
   async sendCashback(request: CashbackPaymentRequest): Promise<CashbackPaymentResult> {
-    if (!process.env.PAYSTACK_SECRET_KEY) {
+    if (!process.env[EnvKey.PaystackSecretKey]) {
       return {
         provider: this.name,
         reference: `${this.name}_dry_run_${createReadableId(EntityIdPrefix.Cashback)}`,

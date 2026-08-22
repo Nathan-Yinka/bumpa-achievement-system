@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { getNumberEnv } from '@bumpa/config-sdk';
+import { EnvKey, getNumberEnv } from '@bumpa/config-sdk';
 import { JsonLogger } from '@bumpa/logger-sdk';
 import { AppModule } from './app.module';
 
@@ -22,7 +22,7 @@ async function bootstrap(): Promise<void> {
   );
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(getNumberEnv('PURCHASE_SERVICE_PORT', 3001));
+  await app.listen(getNumberEnv(EnvKey.PurchaseServicePort, 3001));
 }
 
 void bootstrap();

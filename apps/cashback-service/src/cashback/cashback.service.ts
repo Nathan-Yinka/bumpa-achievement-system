@@ -1,11 +1,13 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { getNumberEnv, getRequiredEnv } from '@bumpa/config-sdk';
+import { EnvKey, getNumberEnv, getRequiredEnv } from '@bumpa/config-sdk';
 import {
   createDomainEvent,
   createReadableId,
   DomainEventName,
   EntityIdPrefix,
+  JobName,
+  JobQueueName,
   PaymentProviderName,
   PaymentStatus,
   ServiceName,
@@ -19,8 +21,6 @@ import { CashbackTransaction } from '../entities/cashback-transaction.entity';
 import { OutboxEvent } from '../entities/outbox-event.entity';
 import { ProcessedEvent } from '../entities/processed-event.entity';
 import { PaymentProviderFactory } from '../payments/payment-provider.factory';
-
-const QUEUE_NAME = 'cashback-payments';
 
 interface CashbackJob {
   transactionId: string;
@@ -41,10 +41,10 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.redis = new IORedis(getRequiredEnv('REDIS_URL'), { maxRetriesPerRequest: null });
-    this.queue = new Queue<CashbackJob>(QUEUE_NAME, { connection: this.redis });
+    this.redis = new IORedis(getRequiredEnv(EnvKey.RedisUrl), { maxRetriesPerRequest: null });
+    this.queue = new Queue<CashbackJob>(JobQueueName.CashbackPayments, { connection: this.redis });
     this.worker = new Worker<CashbackJob>(
-      QUEUE_NAME,
+      JobQueueName.CashbackPayments,
       async (job) => {
         await this.processPayment(job.data.transactionId, job.data.event);
       },
@@ -69,10 +69,11 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const amountKobo = getNumberEnv('CASHBACK_AMOUNT_KOBO', 30000);
+    const amountKobo = getNumberEnv(EnvKey.CashbackAmountKobo, 30000);
     const transactionId = createReadableId(EntityIdPrefix.Cashback);
 
     await this.dataSource.transaction(async (manager) => {
+      // Persist before queueing so retries always have a durable transaction to resume from.
       const existing = await manager.findOne(CashbackTransaction, {
         where: { userId: event.payload.user.id, badgeName: event.payload.badgeName },
       });
@@ -84,7 +85,7 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
           userId: event.payload.user.id,
           badgeName: event.payload.badgeName,
           amountKobo,
-          provider: process.env.PAYMENT_PROVIDER ?? PaymentProviderName.Mock,
+          provider: process.env[EnvKey.PaymentProvider] ?? PaymentProviderName.Mock,
           status: PaymentStatus.Pending,
         });
 
@@ -98,7 +99,7 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
       );
 
       await this.queue.add(
-        'send-cashback',
+        JobName.SendCashback,
         { transactionId: transaction.id, event },
         {
           attempts: 3,
