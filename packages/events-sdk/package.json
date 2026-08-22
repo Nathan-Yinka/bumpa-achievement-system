@@ -1,0 +1,14 @@
+{
+  "name": "@bumpa/events-sdk",
+  "version": "1.0.0",
+  "description": "Versioned event contracts shared by Bumpa backend services.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

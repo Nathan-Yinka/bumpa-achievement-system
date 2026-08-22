@@ -1,0 +1,14 @@
+{
+  "name": "@bumpa/logger-sdk",
+  "version": "1.0.0",
+  "description": "Structured logging and correlation ID helpers for Bumpa services.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}
