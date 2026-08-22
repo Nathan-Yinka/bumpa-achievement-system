@@ -20,7 +20,20 @@ import { UserBadge } from '../entities/user-badge.entity';
 import { UserProjection } from '../entities/user-projection.entity';
 import { UserStats } from '../entities/user-stats.entity';
 import { RuleEngineService } from '../rules/rule-engine.service';
-import type { AchievementRule } from '../rules/rule.types';
+
+export interface AchievementStateResponse {
+  unlocked_achievements: string[];
+  next_available_achievements: string[];
+  current_badge: string;
+  next_badge: string;
+  remaining_to_unlock_next_badge: number;
+}
+
+interface BadgeState {
+  currentBadge: string;
+  nextBadge: string;
+  remainingToUnlockNextBadge: number;
+}
 
 @Injectable()
 export class LoyaltyService {
@@ -84,7 +97,7 @@ export class LoyaltyService {
           continue;
         }
 
-        const unlocked = this.ruleEngine.evaluate(config.rule as unknown as AchievementRule, {
+        const unlocked = this.ruleEngine.evaluate(config.rule, {
           purchaseCount: stats.purchaseCount,
           totalSpendKobo: stats.totalSpendKobo,
         });
@@ -118,7 +131,7 @@ export class LoyaltyService {
             id: achievementEvent.eventId,
             eventType: achievementEvent.type,
             routingKey: achievementEvent.type,
-            payload: achievementEvent as unknown as Record<string, unknown>,
+            payload: achievementEvent,
           }),
         );
       }
@@ -135,7 +148,7 @@ export class LoyaltyService {
     });
   }
 
-  async getAchievementState(userId: string) {
+  async getAchievementState(userId: string): Promise<AchievementStateResponse> {
     const unlockedAchievements = await this.userAchievementRepository.find({
       where: { userId },
       relations: { achievement: true },
@@ -167,7 +180,7 @@ export class LoyaltyService {
     };
   }
 
-  private async unlockBadges(manager: EntityManager, event: PurchaseCompletedEvent) {
+  private async unlockBadges(manager: EntityManager, event: PurchaseCompletedEvent): Promise<void> {
     const achievementCount = await manager.count(UserAchievement, {
       where: { userId: event.payload.userId },
     });
@@ -211,13 +224,13 @@ export class LoyaltyService {
           id: badgeEvent.eventId,
           eventType: badgeEvent.type,
           routingKey: badgeEvent.type,
-          payload: badgeEvent as unknown as Record<string, unknown>,
+          payload: badgeEvent,
         }),
       );
     }
   }
 
-  private async getBadgeState(userId: string, achievementCount: number) {
+  private async getBadgeState(userId: string, achievementCount: number): Promise<BadgeState> {
     const unlockedBadges = await this.userBadgeRepository.find({
       where: { userId },
       relations: { badge: true },

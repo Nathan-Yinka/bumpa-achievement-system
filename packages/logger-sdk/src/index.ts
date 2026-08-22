@@ -2,13 +2,14 @@ import { randomBytes } from 'node:crypto';
 import type { LoggerService, NestMiddleware } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
+import type { JsonValue } from '@bumpa/events-sdk';
 
 export const CORRELATION_ID_HEADER = 'x-correlation-id';
 
 export interface LogContext {
   service: string;
   correlationId?: string;
-  [key: string]: unknown;
+  [key: string]: JsonValue | undefined;
 }
 
 export class JsonLogger implements LoggerService {

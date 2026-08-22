@@ -1,5 +1,5 @@
 import { Column, CreateDateColumn, Entity, PrimaryColumn } from 'typeorm';
-import { OutboxStatus } from '@bumpa/events-sdk';
+import { type BumpaDomainEvent, OutboxStatus } from '@bumpa/events-sdk';
 
 @Entity('outbox_events')
 export class OutboxEvent {
@@ -13,7 +13,7 @@ export class OutboxEvent {
   routingKey!: string;
 
   @Column({ type: 'jsonb' })
-  payload!: Record<string, unknown>;
+  payload!: BumpaDomainEvent;
 
   @Column({ default: OutboxStatus.Pending })
   status!: OutboxStatus;

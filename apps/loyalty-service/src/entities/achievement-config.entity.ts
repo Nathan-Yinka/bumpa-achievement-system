@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, OneToMany, PrimaryColumn, UpdateDateColumn } from 'typeorm';
+import type { AchievementRule } from '../rules/rule.types';
 import { UserAchievement } from './user-achievement.entity';
 
 @Entity('achievement_configs')
@@ -16,7 +17,7 @@ export class AchievementConfig {
   sortOrder!: number;
 
   @Column({ type: 'jsonb' })
-  rule!: Record<string, unknown>;
+  rule!: AchievementRule;
 
   @Column({ default: true })
   active!: boolean;

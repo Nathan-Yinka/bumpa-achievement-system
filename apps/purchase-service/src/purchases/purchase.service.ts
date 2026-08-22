@@ -62,7 +62,7 @@ export class PurchaseService {
           id: event.eventId,
           eventType: event.type,
           routingKey: event.type,
-          payload: event as unknown as Record<string, unknown>,
+          payload: event,
         }),
       );
     });

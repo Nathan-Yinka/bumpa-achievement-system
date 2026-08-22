@@ -19,7 +19,7 @@ export class LoyaltyConfigSeederService implements OnModuleInit {
       DEFAULT_ACHIEVEMENTS.map((achievement) =>
         this.achievementRepository.create({
           ...achievement,
-          rule: achievement.rule as unknown as Record<string, unknown>,
+          rule: achievement.rule,
         }),
       ),
     );

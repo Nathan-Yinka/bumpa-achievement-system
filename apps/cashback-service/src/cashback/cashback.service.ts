@@ -158,7 +158,7 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
             id: processedEvent.eventId,
             eventType: processedEvent.type,
             routingKey: processedEvent.type,
-            payload: processedEvent as unknown as Record<string, unknown>,
+            payload: processedEvent,
           }),
         );
       });

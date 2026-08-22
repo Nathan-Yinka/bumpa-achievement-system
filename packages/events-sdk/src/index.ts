@@ -65,6 +65,13 @@ export enum JobName {
   SendCashback = 'send-cashback',
 }
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
 export function createReadableId(prefix: EntityIdPrefix): string {
   return `${prefix}_${randomBytes(6).toString('hex')}`;
 }

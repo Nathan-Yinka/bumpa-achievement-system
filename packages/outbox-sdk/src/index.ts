@@ -2,13 +2,13 @@ import { DynamicModule, Inject, Injectable, Module, OnModuleDestroy, OnModuleIni
 import { Cron, CronExpression, ScheduleModule } from '@nestjs/schedule';
 import { BrokerService } from '@bumpa/broker-sdk';
 import { getRedisConfig } from '@bumpa/config-sdk';
-import { type DomainEvent, OutboxStatus } from '@bumpa/events-sdk';
+import { type BumpaDomainEvent, OutboxStatus } from '@bumpa/events-sdk';
 import IORedis from 'ioredis';
 import { DataSource, type EntityTarget, type FindOptionsWhere, type ObjectLiteral, type Repository } from 'typeorm';
 
 export interface OutboxRecord extends ObjectLiteral {
   id: string;
-  payload: DomainEvent | Record<string, unknown>;
+  payload: BumpaDomainEvent;
   status: OutboxStatus;
   attempts: number;
   lastError?: string;
@@ -93,7 +93,7 @@ export class ScheduledOutboxPublisher implements OnModuleInit, OnModuleDestroy {
 
     for (const event of events) {
       try {
-        await this.brokerService.publish(event.payload as DomainEvent);
+        await this.brokerService.publish(event.payload);
         event.status = OutboxStatus.Published;
         event.publishedAt = new Date();
         await this.repository.save(event);
