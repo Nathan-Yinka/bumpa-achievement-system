@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OutboxLockKey } from '@bumpa/events-sdk';
 import { OutboxModule } from '@bumpa/outbox-sdk';
+import { AdminConfigController } from '../admin/admin-config.controller';
+import { AdminConfigService } from '../admin/admin-config.service';
+import { getOutboxRuntimeConfig, getRedisConfig } from '../config/env';
 import { LoyaltyConfigSeederService } from '../config/loyalty-config-seeder.service';
 import { AchievementConfig } from '../entities/achievement-config.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
@@ -30,11 +33,17 @@ export const loyaltyEntities = [
 @Module({
   imports: [
     TypeOrmModule.forFeature(loyaltyEntities),
-    OutboxModule.forRoot({ entity: OutboxEvent, lockKey: OutboxLockKey.Loyalty }),
+    OutboxModule.forRoot({
+      entity: OutboxEvent,
+      lockKey: OutboxLockKey.Loyalty,
+      redis: getRedisConfig(),
+      ...getOutboxRuntimeConfig(),
+    }),
   ],
-  controllers: [LoyaltyController],
+  controllers: [LoyaltyController, AdminConfigController],
   providers: [
     LoyaltyService,
+    AdminConfigService,
     RuleEngineService,
     LoyaltyConfigSeederService,
     PurchaseCompletedConsumer,

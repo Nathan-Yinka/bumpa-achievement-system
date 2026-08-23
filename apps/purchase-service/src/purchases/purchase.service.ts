@@ -7,6 +7,7 @@ import {
   EntityIdPrefix,
   type PurchaseCompletedEvent,
 } from '@bumpa/events-sdk';
+import { OutboxService } from '@bumpa/outbox-sdk';
 import { DataSource } from 'typeorm';
 import { OutboxEvent } from '../entities/outbox-event.entity';
 import { Purchase } from '../entities/purchase.entity';
@@ -15,11 +16,15 @@ import type { CreatePurchaseDto } from './dto/create-purchase.dto';
 
 @Injectable()
 export class PurchaseService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly outboxService: OutboxService,
+  ) {}
 
   async createPurchase(dto: CreatePurchaseDto, correlationId: string): Promise<{ purchaseId: string }> {
     const purchaseId = createReadableId(EntityIdPrefix.Purchase);
     const eventId = createReadableId(EntityIdPrefix.Event);
+    const outboxEventIds: string[] = [];
 
     await this.dataSource.transaction(async (manager) => {
       const user = manager.create(User, {
@@ -65,7 +70,10 @@ export class PurchaseService {
           payload: event,
         }),
       );
+      outboxEventIds.push(event.eventId);
     });
+
+    await this.outboxService.publishMany(outboxEventIds);
 
     return { purchaseId };
   }

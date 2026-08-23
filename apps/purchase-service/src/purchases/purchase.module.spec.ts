@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import { OutboxService } from '@bumpa/outbox-sdk';
 import { PurchaseController } from './purchase.controller';
 import { PurchaseService } from './purchase.service';
 
@@ -15,6 +16,7 @@ describe('PurchaseModule wiring', () => {
             transaction: jest.fn(),
           },
         },
+        { provide: OutboxService, useValue: { publishMany: jest.fn() } },
       ],
     }).compile();
 

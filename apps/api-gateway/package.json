@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:dev": "ts-node -r tsconfig-paths/register src/main.ts"
   },
   "dependencies": {
-    "@bumpa/config-sdk": "1.0.0",
-    "@bumpa/logger-sdk": "1.0.0"
+    "@bumpa/events-sdk": "1.0.0",
+    "@bumpa/logger-sdk": "1.0.0",
+    "axios": "^1.19.0"
   }
 }

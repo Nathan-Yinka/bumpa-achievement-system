@@ -9,8 +9,9 @@ FROM dependencies AS build
 ARG APP
 WORKDIR /app
 RUN npm run build -w packages/events-sdk
-RUN npm run build -w packages/config-sdk
 RUN npm run build -w packages/logger-sdk
+RUN npm run build -w packages/broker-sdk
+RUN npm run build -w packages/outbox-sdk
 RUN npm run build -w apps/${APP}
 
 FROM node:22-alpine AS runtime

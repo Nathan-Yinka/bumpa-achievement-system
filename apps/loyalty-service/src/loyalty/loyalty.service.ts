@@ -10,6 +10,7 @@ import {
   type BadgeUnlockedEvent,
   type PurchaseCompletedEvent,
 } from '@bumpa/events-sdk';
+import { OutboxService } from '@bumpa/outbox-sdk';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AchievementConfig } from '../entities/achievement-config.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
@@ -48,6 +49,7 @@ export class LoyaltyService {
     @InjectRepository(UserBadge)
     private readonly userBadgeRepository: Repository<UserBadge>,
     private readonly ruleEngine: RuleEngineService,
+    private readonly outboxService: OutboxService,
   ) {}
 
   async handlePurchaseCompleted(event: PurchaseCompletedEvent): Promise<void> {
@@ -58,6 +60,7 @@ export class LoyaltyService {
       return;
     }
 
+    const outboxEventIds: string[] = [];
     await this.dataSource.transaction(async (manager) => {
       // The projection, counters, unlocks, and outbox rows move together or not at all.
       await manager.upsert(
@@ -134,9 +137,10 @@ export class LoyaltyService {
             payload: achievementEvent,
           }),
         );
+        outboxEventIds.push(achievementEvent.eventId);
       }
 
-      await this.unlockBadges(manager, event);
+      outboxEventIds.push(...(await this.unlockBadges(manager, event)));
 
       await manager.save(
         ProcessedEvent,
@@ -146,6 +150,8 @@ export class LoyaltyService {
         }),
       );
     });
+
+    await this.outboxService.publishMany(outboxEventIds);
   }
 
   async getAchievementState(userId: string): Promise<AchievementStateResponse> {
@@ -180,7 +186,8 @@ export class LoyaltyService {
     };
   }
 
-  private async unlockBadges(manager: EntityManager, event: PurchaseCompletedEvent): Promise<void> {
+  private async unlockBadges(manager: EntityManager, event: PurchaseCompletedEvent): Promise<string[]> {
+    const outboxEventIds: string[] = [];
     const achievementCount = await manager.count(UserAchievement, {
       where: { userId: event.payload.userId },
     });
@@ -227,7 +234,10 @@ export class LoyaltyService {
           payload: badgeEvent,
         }),
       );
+      outboxEventIds.push(badgeEvent.eventId);
     }
+
+    return outboxEventIds;
   }
 
   private async getBadgeState(userId: string, achievementCount: number): Promise<BadgeState> {

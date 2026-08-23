@@ -1,72 +1,134 @@
-import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { EnvKey, getServiceBaseUrl } from '@bumpa/config-sdk';
-import type { JsonValue } from '@bumpa/events-sdk';
+import type { JsonObject, JsonValue } from '@bumpa/events-sdk';
 import { CORRELATION_ID_HEADER } from '@bumpa/logger-sdk';
+import { ApiWrappedOkResponse } from './common/api-response.decorator';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
-
-interface GatewayErrorResponse {
-  statusCode: number;
-  error: JsonValue;
-}
-
-type GatewayJsonResponse = JsonValue | GatewayErrorResponse;
+import { MicroserviceHttpClient } from './http/microservice-http-client.service';
+import { MicroserviceName } from './http/microservice.enum';
 
 @ApiTags('gateway')
 @Controller()
 export class GatewayController {
+  constructor(private readonly httpClient: MicroserviceHttpClient) {}
+
   @Post('purchases')
+  @ApiWrappedOkResponse('Creates a purchase and starts achievement processing.')
   async createPurchase(
     @Body() dto: CreatePurchaseDto,
     @Headers(CORRELATION_ID_HEADER) correlationId?: string,
-  ): Promise<GatewayJsonResponse> {
-    const response = await fetch(`${this.purchaseServiceUrl}/purchases`, {
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Purchase,
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(correlationId ? { [CORRELATION_ID_HEADER]: correlationId } : {}),
-      },
-      body: JSON.stringify(dto),
+      path: '/purchases',
+      body: dto,
+      correlationId,
     });
-
-    return this.readJson(response);
   }
 
   @Get('users/:userId/achievements')
-  async getAchievements(@Param('userId') userId: string): Promise<GatewayJsonResponse> {
-    const response = await fetch(`${this.loyaltyServiceUrl}/internal/users/${userId}/achievements`);
-    return this.readJson(response);
+  @ApiWrappedOkResponse('Returns unlocked achievements, next achievements, and badge progress.')
+  async getAchievements(@Param('userId') userId: string): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'GET',
+      path: `/internal/users/${userId}/achievements`,
+    });
   }
 
-  private get purchaseServiceUrl(): string {
-    return getServiceBaseUrl(EnvKey.PurchaseServiceHost, EnvKey.PurchaseServicePort, 'localhost', 3001);
+  @Get('admin/achievements')
+  @ApiWrappedOkResponse('Lists configured achievements.')
+  async getAchievementConfigs(@Headers(CORRELATION_ID_HEADER) correlationId?: string): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'GET',
+      path: '/admin/achievements',
+      correlationId,
+    });
   }
 
-  private get loyaltyServiceUrl(): string {
-    return getServiceBaseUrl(EnvKey.LoyaltyServiceHost, EnvKey.LoyaltyServicePort, 'localhost', 3002);
+  @Post('admin/achievements')
+  @ApiWrappedOkResponse('Creates an achievement configuration.')
+  async createAchievementConfig(
+    @Body() body: JsonObject,
+    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'POST',
+      path: '/admin/achievements',
+      body,
+      correlationId,
+    });
   }
 
-  private async readJson(response: Response): Promise<GatewayJsonResponse> {
-    const body = this.parseJsonValue(await response.text());
-    if (!response.ok) {
-      return {
-        statusCode: response.status,
-        error: body,
-      };
-    }
-
-    return body;
+  @Patch('admin/achievements/:id')
+  @ApiWrappedOkResponse('Updates an achievement configuration.')
+  async updateAchievementConfig(
+    @Param('id') id: string,
+    @Body() body: JsonObject,
+    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'PATCH',
+      path: `/admin/achievements/${id}`,
+      body,
+      correlationId,
+    });
   }
 
-  private parseJsonValue(text: string): JsonValue {
-    if (text.length === 0) {
-      return null;
-    }
+  @Get('admin/badges')
+  @ApiWrappedOkResponse('Lists configured badges.')
+  async getBadgeConfigs(@Headers(CORRELATION_ID_HEADER) correlationId?: string): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'GET',
+      path: '/admin/badges',
+      correlationId,
+    });
+  }
 
-    try {
-      return JSON.parse(text) as JsonValue;
-    } catch {
-      return text;
-    }
+  @Post('admin/badges')
+  @ApiWrappedOkResponse('Creates a badge configuration.')
+  async createBadgeConfig(
+    @Body() body: JsonObject,
+    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'POST',
+      path: '/admin/badges',
+      body,
+      correlationId,
+    });
+  }
+
+  @Patch('admin/badges/:id')
+  @ApiWrappedOkResponse('Updates a badge configuration.')
+  async updateBadgeConfig(
+    @Param('id') id: string,
+    @Body() body: JsonObject,
+    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'PATCH',
+      path: `/admin/badges/${id}`,
+      body,
+      correlationId,
+    });
+  }
+
+  @Get('cashbacks')
+  @ApiWrappedOkResponse('Lists cashback transactions for observability and e2e verification.')
+  async listCashbacks(@Headers(CORRELATION_ID_HEADER) correlationId?: string): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Cashback,
+      method: 'GET',
+      path: '/cashbacks',
+      correlationId,
+    });
   }
 }

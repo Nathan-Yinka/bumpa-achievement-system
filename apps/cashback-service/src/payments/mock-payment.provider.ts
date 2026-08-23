@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createReadableId, EntityIdPrefix, PaymentProviderName } from '@bumpa/events-sdk';
+import { createReadableId, EntityIdPrefix, PaymentProviderName, PaymentStatus } from '@bumpa/events-sdk';
 import type { CashbackPaymentRequest, CashbackPaymentResult, PaymentProvider } from './payment-provider';
 
 @Injectable()
@@ -10,6 +10,7 @@ export class MockPaymentProvider implements PaymentProvider {
     return {
       provider: this.name,
       reference: `${this.name}_${createReadableId(EntityIdPrefix.Cashback)}`,
+      status: PaymentStatus.Successful,
     };
   }
 }

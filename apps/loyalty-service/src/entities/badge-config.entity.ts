@@ -15,6 +15,9 @@ export class BadgeConfig {
   @Column('int')
   requiredAchievementCount!: number;
 
+  @Column({ nullable: true })
+  imageUrl?: string;
+
   @Column({ default: true })
   active!: boolean;
 

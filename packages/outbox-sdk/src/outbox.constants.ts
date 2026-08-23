@@ -1,0 +1,1 @@
+export const OUTBOX_MODULE_OPTIONS = Symbol('OUTBOX_MODULE_OPTIONS');

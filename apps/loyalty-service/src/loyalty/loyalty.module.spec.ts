@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { BrokerService } from '@bumpa/broker-sdk';
+import { OutboxService } from '@bumpa/outbox-sdk';
 import { LoyaltyConfigSeederService } from '../config/loyalty-config-seeder.service';
 import { AchievementConfig } from '../entities/achievement-config.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
@@ -27,6 +28,7 @@ describe('LoyaltyModule wiring', () => {
         { provide: getRepositoryToken(UserAchievement), useValue: repository },
         { provide: getRepositoryToken(UserBadge), useValue: repository },
         { provide: BrokerService, useValue: { subscribe: jest.fn() } },
+        { provide: OutboxService, useValue: { publishMany: jest.fn() } },
       ],
     }).compile();
 

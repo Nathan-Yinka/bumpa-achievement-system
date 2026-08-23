@@ -53,6 +53,8 @@ services:
       PURCHASE_SERVICE_PORT: 3001
       LOYALTY_SERVICE_HOST: loyalty-service
       LOYALTY_SERVICE_PORT: 3002
+      CASHBACK_SERVICE_HOST: cashback-service
+      CASHBACK_SERVICE_PORT: 3004
     ports:
       - "3000:3000"
 
@@ -76,6 +78,10 @@ services:
       RABBITMQ_PASSWORD: bumpa
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      OUTBOX_BATCH_SIZE: 20
+      OUTBOX_MAX_ATTEMPTS: 5
+      OUTBOX_LOCK_TTL_MS: 5000
+      OUTBOX_POLL_INTERVAL_MS: 30000
     ports:
       - "3001:3001"
     depends_on:
@@ -106,6 +112,10 @@ services:
       RABBITMQ_PASSWORD: bumpa
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      OUTBOX_BATCH_SIZE: 20
+      OUTBOX_MAX_ATTEMPTS: 5
+      OUTBOX_LOCK_TTL_MS: 5000
+      OUTBOX_POLL_INTERVAL_MS: 30000
     ports:
       - "3002:3002"
     depends_on:
@@ -136,8 +146,14 @@ services:
       RABBITMQ_PASSWORD: bumpa
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      PAYMENT_PROVIDER: mock
-      CASHBACK_AMOUNT_KOBO: 30000
+      OUTBOX_BATCH_SIZE: 20
+      OUTBOX_MAX_ATTEMPTS: 5
+      OUTBOX_LOCK_TTL_MS: 5000
+      OUTBOX_POLL_INTERVAL_MS: 30000
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_WEBHOOK_SECRET: ${PAYSTACK_WEBHOOK_SECRET:-}
+      CASHBACK_AMOUNT_KOBO: ${CASHBACK_AMOUNT_KOBO:-30000}
     ports:
       - "3004:3004"
     depends_on:

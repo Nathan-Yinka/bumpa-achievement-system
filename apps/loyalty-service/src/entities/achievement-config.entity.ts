@@ -19,6 +19,9 @@ export class AchievementConfig {
   @Column({ type: 'jsonb' })
   rule!: AchievementRule;
 
+  @Column({ nullable: true })
+  imageUrl?: string;
+
   @Column({ default: true })
   active!: boolean;
 

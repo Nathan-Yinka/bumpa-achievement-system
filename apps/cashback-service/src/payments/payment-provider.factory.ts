@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { EnvKey } from '@bumpa/config-sdk';
 import { PaymentProviderName } from '@bumpa/events-sdk';
+import { EnvKey } from '../config/env';
 import { MockPaymentProvider } from './mock-payment.provider';
 import { PaystackPaymentProvider } from './paystack-payment.provider';
 import type { PaymentProvider } from './payment-provider';

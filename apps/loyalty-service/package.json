@@ -3,13 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:dev": "ts-node -r tsconfig-paths/register src/main.ts"
   },
   "dependencies": {
     "@bumpa/broker-sdk": "1.0.0",
-    "@bumpa/config-sdk": "1.0.0",
     "@bumpa/events-sdk": "1.0.0",
     "@bumpa/logger-sdk": "1.0.0",
     "@bumpa/outbox-sdk": "1.0.0"

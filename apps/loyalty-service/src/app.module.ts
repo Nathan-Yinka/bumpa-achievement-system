@@ -2,9 +2,9 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BrokerModule } from '@bumpa/broker-sdk';
-import { EnvKey, getPostgresConfig } from '@bumpa/config-sdk';
 import { ServiceName } from '@bumpa/events-sdk';
 import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
+import { EnvKey, getPostgresConfig, getRabbitMqConfig, validateConfig } from './config/env';
 import { AchievementConfig } from './entities/achievement-config.entity';
 import { BadgeConfig } from './entities/badge-config.entity';
 import { OutboxEvent } from './entities/outbox-event.entity';
@@ -15,6 +15,7 @@ import { UserProjection } from './entities/user-projection.entity';
 import { UserStats } from './entities/user-stats.entity';
 import { HealthController } from './health.controller';
 import { LoyaltyModule } from './loyalty/loyalty.module';
+import { CreateLoyaltySchema2026082300020 } from './migrations/2026082300020-CreateLoyaltySchema';
 
 const entities = [
   AchievementConfig,
@@ -29,13 +30,15 @@ const entities = [
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateConfig }),
     TypeOrmModule.forRoot({
       ...getPostgresConfig(EnvKey.LoyaltyDatabaseName),
       entities,
-      synchronize: process.env[EnvKey.NodeEnv] !== 'production',
+      migrations: [CreateLoyaltySchema2026082300020],
+      migrationsRun: true,
+      synchronize: false,
     }),
-    BrokerModule.forRoot({ serviceName: ServiceName.Loyalty }),
+    BrokerModule.forRoot({ serviceName: ServiceName.Loyalty, connection: getRabbitMqConfig() }),
     LoyaltyModule,
   ],
   controllers: [HealthController],

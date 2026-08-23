@@ -2,15 +2,22 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { EnvKey, getNumberEnv } from '@bumpa/config-sdk';
 import { JsonLogger } from '@bumpa/logger-sdk';
 import { AppModule } from './app.module';
+import { EnvKey, getNumberEnv } from './config/env';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     logger: new JsonLogger('purchase-service'),
   });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      forbidUnknownValues: true,
+      transform: true,
+    }),
+  );
 
   const document = SwaggerModule.createDocument(
     app,

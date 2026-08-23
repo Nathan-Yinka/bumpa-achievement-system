@@ -23,8 +23,15 @@ export class CashbackTransaction {
   @Column()
   provider!: string;
 
+  @Index()
   @Column({ nullable: true })
   providerReference?: string;
+
+  @Column({ nullable: true })
+  providerRecipientCode?: string;
+
+  @Column({ nullable: true })
+  correlationId?: string;
 
   @Column({ nullable: true, type: 'text' })
   failureReason?: string;
