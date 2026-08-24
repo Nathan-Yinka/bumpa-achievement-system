@@ -26,6 +26,13 @@ export class OutboxService implements OnModuleInit {
       return false;
     }
 
+    // Claims the row so the scheduled poller can't publish it too.
+    const claimed = await this.claimForPublishing(event.id);
+    if (!claimed) {
+      return false;
+    }
+
+    event.status = OutboxStatus.Publishing;
     return this.publishRecord(event);
   }
 
@@ -44,8 +51,30 @@ export class OutboxService implements OnModuleInit {
     });
 
     for (const event of events) {
+      // Another process may have already claimed this row.
+      const claimed = await this.claimForPublishing(event.id);
+      if (!claimed) {
+        continue;
+      }
+
+      event.status = OutboxStatus.Publishing;
       await this.publishRecord(event);
     }
+  }
+
+  /** Flips a row from Pending to Publishing in one update. Returns whether this call won the claim. */
+  private async claimForPublishing(id: string): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .update()
+      // TypeORM's QueryDeepPartialEntity type doesn't fit OutboxRecord's index signature here.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .set({ status: OutboxStatus.Publishing } as any)
+      .where('id = :id', { id })
+      .andWhere('status = :pending', { pending: OutboxStatus.Pending })
+      .execute();
+
+    return (result.affected ?? 0) > 0;
   }
 
   private async publishRecord(event: OutboxRecord): Promise<boolean> {
@@ -59,6 +88,7 @@ export class OutboxService implements OnModuleInit {
     } catch (error) {
       event.attempts += 1;
       event.lastError = error instanceof Error ? error.message : String(error);
+      // Back to Pending for another retry, or Failed once attempts run out.
       event.status = event.attempts >= this.options.maxAttempts ? OutboxStatus.Failed : OutboxStatus.Pending;
       await this.repository.save(event);
       return false;

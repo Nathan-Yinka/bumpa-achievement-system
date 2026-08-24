@@ -9,7 +9,7 @@ describe('events-sdk', () => {
     const event = createDomainEvent(
       DomainEventName.AchievementUnlocked,
       {
-        achievementName: 'First Purchase',
+        achievement_name: 'First Purchase',
         user: {
           id: 'usr_test_user',
           email: 'customer@getbumpa.com',

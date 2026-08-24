@@ -42,12 +42,39 @@ export class ScheduledOutboxPublisher implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    const heartbeat = this.startLockHeartbeat(lockValue);
     try {
       await this.outboxService.publishPendingBatch();
     } finally {
+      clearInterval(heartbeat);
       await this.releaseLock(lockValue);
       this.running = false;
     }
+  }
+
+  /** Keeps the Redis lock alive for as long as the batch is publishing. */
+  private startLockHeartbeat(lockValue: string): NodeJS.Timeout {
+    return setInterval(() => {
+      void this.extendLock(lockValue).catch(() => {
+        // Nothing to do if the lock was already lost.
+      });
+    }, Math.max(1, Math.floor(this.options.lockTtlMs / 2)));
+  }
+
+  private async extendLock(lockValue: string): Promise<void> {
+    // Only extend the TTL if we still hold the lock (compare-and-set).
+    await this.redis.eval(
+      `
+        if redis.call("GET", KEYS[1]) == ARGV[1] then
+          return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+        end
+        return 0
+      `,
+      1,
+      this.options.lockKey,
+      lockValue,
+      this.options.lockTtlMs,
+    );
   }
 
   private async acquireLock(lockValue: string): Promise<boolean> {

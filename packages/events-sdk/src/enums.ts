@@ -30,6 +30,7 @@ export enum ServiceName {
 
 export enum OutboxStatus {
   Pending = 'PENDING',
+  Publishing = 'PUBLISHING',
   Published = 'PUBLISHED',
   Failed = 'FAILED',
 }

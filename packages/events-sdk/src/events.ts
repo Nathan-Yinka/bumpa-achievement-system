@@ -26,12 +26,14 @@ export interface PurchaseCompletedPayload {
 }
 
 export interface AchievementUnlockedPayload {
-  achievementName: string;
+  achievement_name: string;
   user: UserSnapshot;
 }
 
 export interface BadgeUnlockedPayload {
-  badgeName: string;
+  badge_name: string;
+  rewardAmountKobo: number;
+  rewardCurrency: string;
   user: UserSnapshot;
 }
 
