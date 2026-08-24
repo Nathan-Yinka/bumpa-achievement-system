@@ -8,6 +8,8 @@ import { OutboxEvent } from '../entities/outbox-event.entity';
 import { PayoutAccount } from '../entities/payout-account.entity';
 import { ProcessedEvent } from '../entities/processed-event.entity';
 import { BadgeUnlockedConsumer } from '../messaging/badge-unlocked.consumer';
+import { BanksController } from '../payments/banks.controller';
+import { BanksService } from '../payments/banks.service';
 import { MockPaymentProvider } from '../payments/mock-payment.provider';
 import { PaymentProviderFactory } from '../payments/payment-provider.factory';
 import { PaystackPaymentProvider } from '../payments/paystack-payment.provider';
@@ -28,7 +30,7 @@ export const cashbackEntities = [CashbackTransaction, OutboxEvent, PayoutAccount
       ...getOutboxRuntimeConfig(),
     }),
   ],
-  controllers: [CashbackController, PaystackWebhookController],
+  controllers: [CashbackController, PaystackWebhookController, BanksController],
   providers: [
     CashbackService,
     BadgeUnlockedConsumer,
@@ -36,6 +38,7 @@ export const cashbackEntities = [CashbackTransaction, OutboxEvent, PayoutAccount
     PaystackPaymentProvider,
     PaystackWebhookService,
     PaymentProviderFactory,
+    BanksService,
   ],
 })
 export class CashbackModule {}
