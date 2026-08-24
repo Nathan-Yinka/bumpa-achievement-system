@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   createReadableId,
   EntityIdPrefix,
@@ -8,6 +8,7 @@ import {
   PaymentStatus,
 } from '@bumpa/events-sdk';
 import { EnvKey } from '../config/env';
+import { MissingBankDetailsError } from './payment-provider';
 import type { CashbackPaymentRequest, CashbackPaymentResult, PaymentProvider } from './payment-provider';
 
 interface PaystackRecipient {
@@ -22,10 +23,12 @@ interface PaystackTransfer {
 export class PaystackPaymentProvider implements PaymentProvider {
   readonly name = PaymentProviderName.Paystack;
   private readonly baseUrl = 'https://api.paystack.co';
+  private readonly logger = new Logger(PaystackPaymentProvider.name);
 
   async sendCashback(request: CashbackPaymentRequest): Promise<CashbackPaymentResult> {
     const secretKey = process.env[EnvKey.PaystackSecretKey];
     if (!secretKey) {
+      this.logger.warn(`No Paystack secret key configured; dry-running cashback for user ${request.userId}`);
       return {
         provider: this.name,
         reference: `${this.name}_dry_run_${createReadableId(EntityIdPrefix.Cashback)}`,
@@ -34,19 +37,26 @@ export class PaystackPaymentProvider implements PaymentProvider {
     }
 
     if (!request.bankAccountNumber || !request.bankCode) {
-      throw new Error('Bank account number and bank code are required for Paystack cashback');
+      throw new MissingBankDetailsError('Bank account number and bank code are required for Paystack cashback');
     }
 
-    const recipientCode =
-      request.providerRecipientCode ?? (await this.createTransferRecipient(secretKey, request)).recipientCode;
-    const transfer = await this.initiateTransfer(secretKey, request, recipientCode);
+    this.logger.log(`Initiating Paystack cashback transfer for user ${request.userId}, badge ${request.badgeName}`);
+    try {
+      const recipientCode =
+        request.providerRecipientCode ?? (await this.createTransferRecipient(secretKey, request)).recipientCode;
+      const transfer = await this.initiateTransfer(secretKey, request, recipientCode);
 
-    return {
-      provider: this.name,
-      reference: transfer.reference,
-      status: PaymentStatus.Pending,
-      providerRecipientCode: recipientCode,
-    };
+      return {
+        provider: this.name,
+        reference: transfer.reference,
+        status: PaymentStatus.Pending,
+        providerRecipientCode: recipientCode,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Paystack API error for user ${request.userId}: ${message}`);
+      throw error;
+    }
   }
 
   private async createTransferRecipient(

@@ -1,5 +1,13 @@
 import type { PaymentStatus } from '@bumpa/events-sdk';
 
+/** Thrown when a cashback payment can't proceed because the user has no bank details on file. */
+export class MissingBankDetailsError extends Error {
+  constructor(message = 'User payout account is required before cashback can be processed') {
+    super(message);
+    this.name = 'MissingBankDetailsError';
+  }
+}
+
 export interface CashbackPaymentRequest {
   userId: string;
   userName: string;

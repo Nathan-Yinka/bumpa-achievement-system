@@ -75,6 +75,26 @@ describe('PaystackWebhookService', () => {
     expect(manager.save).toHaveBeenCalledWith(OutboxEvent, expect.objectContaining({ eventType: 'CashbackProcessed.v1' }));
   });
 
+  it('marks a PROCESSING transfer successful (PROCESSING is non-terminal, still eligible)', async () => {
+    repository.findOneBy.mockResolvedValue({ ...transaction, status: 'PROCESSING' });
+    const body = { event: 'transfer.success', data: { reference: 'paystack_ref' } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+
+    await service.handleWebhook(rawBody, body, sign(rawBody));
+
+    expect(manager.save).toHaveBeenCalledWith(CashbackTransaction, expect.objectContaining({ status: PaymentStatus.Successful }));
+  });
+
+  it('marks a PROCESSING transfer failed (PROCESSING is non-terminal, still eligible)', async () => {
+    repository.findOneBy.mockResolvedValue({ ...transaction, status: 'PROCESSING' });
+    const body = { event: 'transfer.failed', data: { reference: 'paystack_ref', reason: 'insufficient funds' } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+
+    await service.handleWebhook(rawBody, body, sign(rawBody));
+
+    expect(manager.save).toHaveBeenCalledWith(CashbackTransaction, expect.objectContaining({ status: PaymentStatus.Failed }));
+  });
+
   it('rejects an invalid signature', async () => {
     const body = { event: 'transfer.success', data: { reference: 'paystack_ref' } };
 

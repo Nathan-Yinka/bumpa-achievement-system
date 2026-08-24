@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import {
   createDomainEvent,
   createReadableId,
@@ -24,6 +24,8 @@ interface PaystackWebhookEvent {
 
 @Injectable()
 export class PaystackWebhookService {
+  private readonly logger = new Logger(PaystackWebhookService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(CashbackTransaction)
@@ -34,6 +36,7 @@ export class PaystackWebhookService {
   async handleWebhook(rawBody: Buffer | undefined, body: JsonObject, signature?: string): Promise<void> {
     this.verifySignature(rawBody, signature);
     const event = this.parseEvent(body);
+    this.logger.log(`Received Paystack webhook event "${event.event}"`);
 
     if (event.event === 'transfer.success') {
       await this.markTransferSuccessful(event.data);
@@ -48,6 +51,7 @@ export class PaystackWebhookService {
   private verifySignature(rawBody: Buffer | undefined, signature?: string): void {
     const secret = process.env[EnvKey.PaystackWebhookSecret] || process.env[EnvKey.PaystackSecretKey];
     if (!secret || !rawBody || !signature) {
+      this.logger.warn('Rejected Paystack webhook: missing secret, raw body, or signature');
       throw new UnauthorizedException('Paystack webhook signature could not be verified');
     }
 
@@ -56,6 +60,7 @@ export class PaystackWebhookService {
     const signatureBuffer = Buffer.from(signature, 'hex');
 
     if (expectedBuffer.length !== signatureBuffer.length || !timingSafeEqual(expectedBuffer, signatureBuffer)) {
+      this.logger.warn('Rejected Paystack webhook: signature mismatch');
       throw new UnauthorizedException('Invalid Paystack webhook signature');
     }
   }
@@ -69,7 +74,12 @@ export class PaystackWebhookService {
   private async markTransferSuccessful(data: JsonObject): Promise<void> {
     const reference = this.readRequiredString(data, 'reference');
     const transaction = await this.transactionRepository.findOneBy({ providerReference: reference });
+    // PENDING (async Paystack transfer awaiting webhook confirmation) and PROCESSING (claimed
+    // by the worker but the provider call is/was in flight) are both non-terminal and must
+    // still be eligible to move to SUCCESSFUL here — only a transaction already SUCCESSFUL is
+    // skipped, so this webhook stays idempotent on retry/duplicate delivery.
     if (!transaction || transaction.status === PaymentStatus.Successful) {
+      this.logger.log(`Ignoring transfer.success webhook for reference ${reference}: no pending transaction found`);
       return;
     }
 
@@ -83,12 +93,17 @@ export class PaystackWebhookService {
     if (outboxEventId) {
       await this.outboxService.publishById(outboxEventId);
     }
+    this.logger.log(`Transaction for reference ${reference} marked SUCCESSFUL via Paystack webhook`);
   }
 
   private async markTransferFailed(data: JsonObject): Promise<void> {
     const reference = this.readRequiredString(data, 'reference');
     const transaction = await this.transactionRepository.findOneBy({ providerReference: reference });
+    // See the comment in markTransferSuccessful — PENDING and PROCESSING are both non-terminal
+    // and must still be eligible to move to FAILED here; only an already-FAILED transaction is
+    // skipped.
     if (!transaction || transaction.status === PaymentStatus.Failed) {
+      this.logger.log(`Ignoring transfer.failed webhook for reference ${reference}: no eligible transaction found`);
       return;
     }
 
@@ -103,6 +118,7 @@ export class PaystackWebhookService {
     if (outboxEventId) {
       await this.outboxService.publishById(outboxEventId);
     }
+    this.logger.warn(`Transaction for reference ${reference} marked FAILED via Paystack webhook`);
   }
 
   private async saveCashbackProcessedEvent(

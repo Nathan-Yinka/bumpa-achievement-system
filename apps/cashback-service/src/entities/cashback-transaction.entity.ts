@@ -1,6 +1,11 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryColumn, Unique, UpdateDateColumn } from 'typeorm';
 import { PaymentStatus } from '@bumpa/events-sdk';
 
+/** In-flight status meaning a transaction is claimed and being paid out. */
+export const CashbackProcessingStatus = 'PROCESSING' as const;
+
+export type CashbackTransactionStatus = PaymentStatus | typeof CashbackProcessingStatus;
+
 @Entity('cashback_transactions')
 @Unique(['userId', 'badgeName'])
 export class CashbackTransaction {
@@ -18,7 +23,7 @@ export class CashbackTransaction {
 
   @Index()
   @Column({ default: PaymentStatus.Pending })
-  status!: PaymentStatus;
+  status!: CashbackTransactionStatus;
 
   @Column()
   provider!: string;

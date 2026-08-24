@@ -13,7 +13,14 @@ import { CashbackService } from './cashback.service';
 
 describe('CashbackModule wiring', () => {
   it('compiles the cashback controller with mocked infrastructure', async () => {
-    const repository = { find: jest.fn(), save: jest.fn(), create: jest.fn(), exists: jest.fn(), findOneBy: jest.fn() };
+    const repository = {
+      find: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn(),
+      exists: jest.fn(),
+      findOneBy: jest.fn(),
+      update: jest.fn(),
+    };
     const moduleRef = await Test.createTestingModule({
       controllers: [CashbackController],
       providers: [

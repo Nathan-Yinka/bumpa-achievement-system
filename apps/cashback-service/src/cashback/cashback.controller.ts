@@ -1,7 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { CashbackTransaction } from '../entities/cashback-transaction.entity';
 import { CashbackService } from './cashback.service';
+import { ListCashbacksQueryDto } from './dto/list-cashbacks-query.dto';
+import { PaginatedCashbacksResponseDto } from './dto/paginated-cashbacks-response.dto';
+import { RetryCashbackDto } from './dto/retry-cashback.dto';
 
 @ApiTags('cashback')
 @Controller('cashbacks')
@@ -9,7 +11,13 @@ export class CashbackController {
   constructor(private readonly cashbackService: CashbackService) {}
 
   @Get()
-  list(): Promise<CashbackTransaction[]> {
-    return this.cashbackService.listTransactions();
+  list(@Query() query: ListCashbacksQueryDto): Promise<PaginatedCashbacksResponseDto> {
+    return this.cashbackService.listTransactions(query);
+  }
+
+  @Post(':id/retry')
+  @HttpCode(200)
+  retry(@Param('id') id: string, @Body() body: RetryCashbackDto): Promise<void> {
+    return this.cashbackService.retryFailedTransaction(id, body);
   }
 }
