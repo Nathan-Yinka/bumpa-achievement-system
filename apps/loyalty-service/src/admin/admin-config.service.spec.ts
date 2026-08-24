@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { AchievementConfig } from '../entities/achievement-config.entity';
@@ -9,48 +9,50 @@ import { AdminConfigService } from './admin-config.service';
 import { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
 
 interface MockRepository<TEntity extends object> {
-  find: jest.Mock<Promise<TEntity[]>, [{ order: Record<string, 'ASC' | 'DESC'> }]>;
+  find: jest.Mock;
+  findAndCount: jest.Mock;
   findOneBy: jest.Mock<Promise<TEntity | null>, [Record<string, string>]>;
-  create: jest.Mock<TEntity, [Partial<TEntity>]>;
-  merge: jest.Mock<TEntity, [TEntity, Partial<TEntity>]>;
-  save: jest.Mock<Promise<TEntity>, [TEntity]>;
-  createQueryBuilder: jest.Mock;
 }
 
 function createRepository<TEntity extends object>(): MockRepository<TEntity> {
   return {
     find: jest.fn(),
+    findAndCount: jest.fn(),
     findOneBy: jest.fn(),
-    create: jest.fn((entity) => entity as TEntity),
-    merge: jest.fn((entity, dto) => Object.assign(entity, dto)),
-    save: jest.fn(async (entity) => entity),
-    createQueryBuilder: jest.fn(),
   };
-}
-
-function fakeQueryBuilder<TEntity>(items: TEntity[], total: number) {
-  const qb: Record<string, jest.Mock> = {};
-  qb.orderBy = jest.fn(() => qb);
-  qb.addOrderBy = jest.fn(() => qb);
-  qb.andWhere = jest.fn(() => qb);
-  qb.skip = jest.fn(() => qb);
-  qb.take = jest.fn(() => qb);
-  qb.getManyAndCount = jest.fn(async () => [items, total]);
-  return qb;
 }
 
 describe('AdminConfigService', () => {
   let service: AdminConfigService;
   let achievements: MockRepository<AchievementConfig>;
   let badges: MockRepository<BadgeConfig>;
+  let manager: {
+    findOneBy: jest.Mock;
+    create: jest.Mock;
+    merge: jest.Mock;
+    save: jest.Mock;
+    increment: jest.Mock;
+  };
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     achievements = createRepository<AchievementConfig>();
     badges = createRepository<BadgeConfig>();
+    manager = {
+      findOneBy: jest.fn(),
+      create: jest.fn((_entity, data) => data),
+      merge: jest.fn((_entity, target, dto) => Object.assign(target, dto)),
+      save: jest.fn(async (_entity, data) => data),
+      increment: jest.fn(async () => ({ affected: 0 })),
+    };
+    dataSource = {
+      transaction: jest.fn(async (callback: (m: typeof manager) => Promise<unknown>) => callback(manager)),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         AdminConfigService,
+        { provide: getDataSourceToken(), useValue: dataSource },
         { provide: getRepositoryToken(AchievementConfig), useValue: achievements },
         { provide: getRepositoryToken(BadgeConfig), useValue: badges },
       ],
@@ -71,11 +73,11 @@ describe('AdminConfigService', () => {
 
     expect(result.active).toBe(true);
     expect(result.description).toBe('Complete 20 purchases.');
-    expect(achievements.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'ach_20_purchases' }));
+    expect(manager.save).toHaveBeenCalledWith(AchievementConfig, expect.objectContaining({ id: 'ach_20_purchases' }));
   });
 
   it('updates an existing badge config', async () => {
-    badges.findOneBy.mockResolvedValue({
+    manager.findOneBy.mockResolvedValue({
       id: 'bdg_advanced',
       name: 'Advanced',
       description: 'Advanced customers.',
@@ -93,7 +95,7 @@ describe('AdminConfigService', () => {
     const result = await service.updateBadge('bdg_advanced', { requiredAchievementCount: 8 });
 
     expect(result.requiredAchievementCount).toBe(8);
-    expect(badges.save).toHaveBeenCalledWith(expect.objectContaining({ requiredAchievementCount: 8 }));
+    expect(manager.save).toHaveBeenCalledWith(BadgeConfig, expect.objectContaining({ requiredAchievementCount: 8 }));
   });
 
   it('creates badge config with default reward values', async () => {
@@ -126,11 +128,11 @@ describe('AdminConfigService', () => {
         requiredAchievementIds: ['ach_does_not_exist'],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(badges.save).not.toHaveBeenCalled();
+    expect(manager.save).not.toHaveBeenCalled();
   });
 
   it('rejects updating a badge to reference a nonexistent achievement id', async () => {
-    badges.findOneBy.mockResolvedValue({
+    manager.findOneBy.mockResolvedValue({
       id: 'bdg_advanced',
       name: 'Advanced',
       description: 'Advanced customers.',
@@ -149,7 +151,7 @@ describe('AdminConfigService', () => {
     await expect(
       service.updateBadge('bdg_advanced', { requiredAchievementIds: ['ach_does_not_exist'] }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(badges.save).not.toHaveBeenCalled();
+    expect(manager.save).not.toHaveBeenCalled();
   });
 
   it('returns a structured catalog with badge achievement links', async () => {
@@ -197,9 +199,89 @@ describe('AdminConfigService', () => {
   });
 
   it('throws when updating a missing achievement config', async () => {
-    achievements.findOneBy.mockResolvedValue(null);
+    manager.findOneBy.mockResolvedValue(null);
 
     await expect(service.updateAchievement('ach_missing', { active: false })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe('sortOrder collisions ("make room" auto-shift)', () => {
+    it('bumps every achievement at or after the target sortOrder, scoped to the same group', async () => {
+      await service.createAchievement({
+        id: 'ach_new',
+        name: 'New',
+        description: 'desc',
+        groupKey: 'purchases',
+        sortOrder: 4,
+        rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+      });
+
+      expect(manager.increment).toHaveBeenCalledWith(
+        AchievementConfig,
+        expect.objectContaining({ groupKey: 'purchases', sortOrder: expect.anything() }),
+        'sortOrder',
+        1,
+      );
+    });
+
+    it('excludes the achievement itself when moving it to a genuinely different position', async () => {
+      manager.findOneBy.mockResolvedValue({
+        id: 'ach_first_purchase',
+        groupKey: 'purchases',
+        sortOrder: 1,
+      });
+
+      await service.updateAchievement('ach_first_purchase', { sortOrder: 3 });
+
+      expect(manager.increment).toHaveBeenCalledWith(
+        AchievementConfig,
+        expect.objectContaining({ groupKey: 'purchases', id: expect.anything(), sortOrder: expect.anything() }),
+        'sortOrder',
+        1,
+      );
+    });
+
+    it('does not touch sortOrder for an update that does not mention it', async () => {
+      manager.findOneBy.mockResolvedValue({ id: 'ach_1', groupKey: 'purchases', sortOrder: 1, active: true });
+
+      await service.updateAchievement('ach_1', { active: false });
+
+      expect(manager.increment).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when sortOrder is set to the value it already has', async () => {
+      manager.findOneBy.mockResolvedValue({ id: 'ach_1', groupKey: 'purchases', sortOrder: 2, active: true });
+
+      await service.updateAchievement('ach_1', { sortOrder: 2 });
+
+      expect(manager.increment).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op for a badge update that sets sortOrder to its current value', async () => {
+      manager.findOneBy.mockResolvedValue({ id: 'bdg_1', sortOrder: 2, requiredAchievementIds: [] });
+
+      await service.updateBadge('bdg_1', { sortOrder: 2 });
+
+      expect(manager.increment).not.toHaveBeenCalled();
+    });
+
+    it('bumps every badge at or after the target sortOrder globally, with no scope filter', async () => {
+      achievements.find.mockResolvedValue([]);
+
+      await service.createBadge({
+        id: 'bdg_new',
+        name: 'New',
+        description: 'desc',
+        sortOrder: 4,
+        requiredAchievementCount: 1,
+      });
+
+      expect(manager.increment).toHaveBeenCalledWith(
+        BadgeConfig,
+        expect.not.objectContaining({ groupKey: expect.anything() }),
+        'sortOrder',
+        1,
+      );
+    });
   });
 
   describe('rule shape validation', () => {
@@ -262,15 +344,17 @@ describe('AdminConfigService', () => {
         rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
         active: true,
       } as AchievementConfig;
-      const qb = fakeQueryBuilder([achievement], 1);
-      achievements.createQueryBuilder.mockReturnValue(qb);
+      achievements.findAndCount.mockResolvedValue([[achievement], 1]);
 
       const result = await service.listAchievements({ page: 1, limit: 20, groupKey: 'purchases', search: 'first' });
 
-      expect(qb.andWhere).toHaveBeenCalledWith('achievement.groupKey = :groupKey', { groupKey: 'purchases' });
-      expect(qb.andWhere).toHaveBeenCalledWith(expect.anything());
-      expect(qb.skip).toHaveBeenCalledWith(0);
-      expect(qb.take).toHaveBeenCalledWith(20);
+      expect(achievements.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          order: { groupKey: 'ASC', sortOrder: 'ASC' },
+          skip: 0,
+          take: 20,
+        }),
+      );
       expect(result.meta).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
       expect(result.items).toHaveLength(1);
     });
@@ -287,13 +371,17 @@ describe('AdminConfigService', () => {
         rewardCurrency: 'NGN',
         active: true,
       } as BadgeConfig;
-      const qb = fakeQueryBuilder([badge], 25);
-      badges.createQueryBuilder.mockReturnValue(qb);
+      badges.findAndCount.mockResolvedValue([[badge], 25]);
 
       const result = await service.listBadges({ page: 2, limit: 10 });
 
-      expect(qb.skip).toHaveBeenCalledWith(10);
-      expect(qb.take).toHaveBeenCalledWith(10);
+      expect(badges.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          order: { sortOrder: 'ASC' },
+          skip: 10,
+          take: 10,
+        }),
+      );
       expect(result.meta).toEqual({ page: 2, limit: 10, total: 25, totalPages: 3 });
     });
   });

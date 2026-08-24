@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
+import { CorrelationIdMiddleware, RequestLoggingMiddleware } from '@bumpa/logger-sdk';
 import { validateConfig } from './config/env';
 import { GatewayModule } from './gateway.module';
 import { HealthController } from './health.controller';
@@ -11,6 +11,6 @@ import { HealthController } from './health.controller';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    consumer.apply(CorrelationIdMiddleware, RequestLoggingMiddleware).forRoutes('*');
   }
 }

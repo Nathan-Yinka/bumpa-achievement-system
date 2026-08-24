@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BrokerModule } from '@bumpa/broker-sdk';
 import { ServiceName } from '@bumpa/events-sdk';
-import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
+import { CorrelationIdMiddleware, RequestLoggingMiddleware } from '@bumpa/logger-sdk';
 import { EnvKey, getPostgresConfig, getRabbitMqConfig, validateConfig } from './config/env';
 import { AchievementConfig } from './entities/achievement-config.entity';
 import { BadgeConfig } from './entities/badge-config.entity';
@@ -53,6 +53,6 @@ const entities = [
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    consumer.apply(CorrelationIdMiddleware, RequestLoggingMiddleware).forRoutes('*');
   }
 }

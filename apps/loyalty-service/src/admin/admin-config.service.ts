@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, In, Repository } from 'typeorm';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, ILike, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { AchievementConfig } from '../entities/achievement-config.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
 import type { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
@@ -17,7 +17,10 @@ import type { ListAchievementConfigQueryDto, ListConfigQueryDto } from './dto/li
 
 @Injectable()
 export class AdminConfigService {
+  private readonly logger = new Logger(AdminConfigService.name);
+
   constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(AchievementConfig)
     private readonly achievementRepository: Repository<AchievementConfig>,
     @InjectRepository(BadgeConfig)
@@ -27,31 +30,12 @@ export class AdminConfigService {
   async listAchievements(query: ListAchievementConfigQueryDto = {}): Promise<PaginatedAchievementConfigResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-
-    const qb = this.achievementRepository
-      .createQueryBuilder('achievement')
-      .orderBy('achievement.groupKey', 'ASC')
-      .addOrderBy('achievement.sortOrder', 'ASC');
-
-    if (query.groupKey) {
-      qb.andWhere('achievement.groupKey = :groupKey', { groupKey: query.groupKey });
-    }
-    if (query.active !== undefined) {
-      qb.andWhere('achievement.active = :active', { active: query.active });
-    }
-    if (query.search) {
-      const search = `%${query.search}%`;
-      qb.andWhere(
-        new Brackets((sub) => {
-          sub.where('achievement.name ILIKE :search', { search }).orWhere('achievement.description ILIKE :search', { search });
-        }),
-      );
-    }
-
-    const [achievements, total] = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    const [achievements, total] = await this.achievementRepository.findAndCount({
+      where: this.buildAchievementWhere(query),
+      order: { groupKey: 'ASC', sortOrder: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
     return {
       items: achievements.map((achievement) => this.toAchievementResponse(achievement)),
@@ -60,45 +44,46 @@ export class AdminConfigService {
   }
 
   async createAchievement(dto: CreateAchievementConfigDto): Promise<AchievementConfigResponseDto> {
-    const achievement = this.achievementRepository.create({
-      ...dto,
-      active: dto.active ?? true,
+    const result = await this.dataSource.transaction(async (manager) => {
+      await this.makeRoomForAchievementSortOrder(manager, dto.groupKey, dto.sortOrder);
+
+      const achievement = manager.create(AchievementConfig, { ...dto, active: dto.active ?? true });
+      return this.toAchievementResponse(await manager.save(AchievementConfig, achievement));
     });
-    return this.toAchievementResponse(await this.achievementRepository.save(achievement));
+    this.logger.log(`Created achievement config ${result.id} ("${result.name}", group "${result.groupKey}", sortOrder ${result.sortOrder})`);
+    return result;
   }
 
   async updateAchievement(id: string, dto: UpdateAchievementConfigDto): Promise<AchievementConfigResponseDto> {
-    const achievement = await this.achievementRepository.findOneBy({ id });
-    if (!achievement) {
-      throw new NotFoundException(`Achievement config ${id} was not found`);
-    }
+    return this.dataSource.transaction(async (manager) => {
+      const achievement = await manager.findOneBy(AchievementConfig, { id });
+      if (!achievement) {
+        throw new NotFoundException(`Achievement config ${id} was not found`);
+      }
 
-    this.achievementRepository.merge(achievement, dto);
-    return this.toAchievementResponse(await this.achievementRepository.save(achievement));
+      const targetGroupKey = dto.groupKey ?? achievement.groupKey;
+      const targetSortOrder = dto.sortOrder ?? achievement.sortOrder;
+      const positionChanged = targetGroupKey !== achievement.groupKey || targetSortOrder !== achievement.sortOrder;
+      if (positionChanged) {
+        await this.makeRoomForAchievementSortOrder(manager, targetGroupKey, targetSortOrder, id);
+      }
+
+      manager.merge(AchievementConfig, achievement, dto);
+      const updated = this.toAchievementResponse(await manager.save(AchievementConfig, achievement));
+      this.logger.log(`Updated achievement config ${updated.id} (${JSON.stringify(dto)})`);
+      return updated;
+    });
   }
 
   async listBadges(query: ListConfigQueryDto = {}): Promise<PaginatedBadgeConfigResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-
-    const qb = this.badgeRepository.createQueryBuilder('badge').orderBy('badge.sortOrder', 'ASC');
-
-    if (query.active !== undefined) {
-      qb.andWhere('badge.active = :active', { active: query.active });
-    }
-    if (query.search) {
-      const search = `%${query.search}%`;
-      qb.andWhere(
-        new Brackets((sub) => {
-          sub.where('badge.name ILIKE :search', { search }).orWhere('badge.description ILIKE :search', { search });
-        }),
-      );
-    }
-
-    const [badges, total] = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    const [badges, total] = await this.badgeRepository.findAndCount({
+      where: this.buildBadgeWhere(query),
+      order: { sortOrder: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
     return {
       items: badges.map((badge) => this.toBadgeResponse(badge)),
@@ -109,28 +94,77 @@ export class AdminConfigService {
   async createBadge(dto: CreateBadgeConfigDto): Promise<BadgeConfigResponseDto> {
     await this.assertAchievementsExist(dto.requiredAchievementIds ?? []);
 
-    const badge = this.badgeRepository.create({
-      ...dto,
-      requiredAchievementIds: dto.requiredAchievementIds ?? [],
-      rewardAmountKobo: dto.rewardAmountKobo ?? 30000,
-      rewardCurrency: dto.rewardCurrency ?? 'NGN',
-      active: dto.active ?? true,
+    const result = await this.dataSource.transaction(async (manager) => {
+      await this.makeRoomForBadgeSortOrder(manager, dto.sortOrder);
+
+      const badge = manager.create(BadgeConfig, {
+        ...dto,
+        requiredAchievementIds: dto.requiredAchievementIds ?? [],
+        rewardAmountKobo: dto.rewardAmountKobo ?? 30000,
+        rewardCurrency: dto.rewardCurrency ?? 'NGN',
+        active: dto.active ?? true,
+      });
+      return this.toBadgeResponse(await manager.save(BadgeConfig, badge));
     });
-    return this.toBadgeResponse(await this.badgeRepository.save(badge));
+    this.logger.log(`Created badge config ${result.id} ("${result.name}", sortOrder ${result.sortOrder})`);
+    return result;
   }
 
   async updateBadge(id: string, dto: UpdateBadgeConfigDto): Promise<BadgeConfigResponseDto> {
-    const badge = await this.badgeRepository.findOneBy({ id });
-    if (!badge) {
-      throw new NotFoundException(`Badge config ${id} was not found`);
-    }
-
     if (dto.requiredAchievementIds !== undefined) {
       await this.assertAchievementsExist(dto.requiredAchievementIds);
     }
 
-    this.badgeRepository.merge(badge, dto);
-    return this.toBadgeResponse(await this.badgeRepository.save(badge));
+    return this.dataSource.transaction(async (manager) => {
+      const badge = await manager.findOneBy(BadgeConfig, { id });
+      if (!badge) {
+        throw new NotFoundException(`Badge config ${id} was not found`);
+      }
+
+      if (dto.sortOrder !== undefined && dto.sortOrder !== badge.sortOrder) {
+        await this.makeRoomForBadgeSortOrder(manager, dto.sortOrder, id);
+      }
+
+      manager.merge(BadgeConfig, badge, dto);
+      const updated = this.toBadgeResponse(await manager.save(BadgeConfig, badge));
+      this.logger.log(`Updated badge config ${updated.id} (${JSON.stringify(dto)})`);
+      return updated;
+    });
+  }
+
+  // Insert-at-position behavior: shift later items down within the same group.
+  private async makeRoomForAchievementSortOrder(
+    manager: EntityManager,
+    groupKey: string,
+    targetSortOrder: number,
+    excludeId?: string,
+  ): Promise<void> {
+    await manager.increment(
+      AchievementConfig,
+      {
+        groupKey,
+        sortOrder: MoreThanOrEqual(targetSortOrder),
+        ...(excludeId ? { id: Not(excludeId) } : {}),
+      },
+      'sortOrder',
+      1,
+    );
+  }
+
+  private async makeRoomForBadgeSortOrder(
+    manager: EntityManager,
+    targetSortOrder: number,
+    excludeId?: string,
+  ): Promise<void> {
+    await manager.increment(
+      BadgeConfig,
+      {
+        sortOrder: MoreThanOrEqual(targetSortOrder),
+        ...(excludeId ? { id: Not(excludeId) } : {}),
+      },
+      'sortOrder',
+      1,
+    );
   }
 
   private async assertAchievementsExist(achievementIds: string[]): Promise<void> {
@@ -160,6 +194,33 @@ export class AdminConfigService {
       achievements: achievementResponses,
       badges: badges.map((badge) => this.toBadgeCatalogItem(badge, achievementsById)),
     };
+  }
+
+  private buildAchievementWhere(
+    query: ListAchievementConfigQueryDto,
+  ): FindOptionsWhere<AchievementConfig> | FindOptionsWhere<AchievementConfig>[] {
+    const baseWhere: FindOptionsWhere<AchievementConfig> = {
+      ...(query.groupKey ? { groupKey: query.groupKey } : {}),
+      ...(query.active !== undefined ? { active: query.active } : {}),
+    };
+    if (!query.search) {
+      return baseWhere;
+    }
+
+    const search = ILike(`%${query.search}%`);
+    return [{ ...baseWhere, name: search }, { ...baseWhere, description: search }];
+  }
+
+  private buildBadgeWhere(query: ListConfigQueryDto): FindOptionsWhere<BadgeConfig> | FindOptionsWhere<BadgeConfig>[] {
+    const baseWhere: FindOptionsWhere<BadgeConfig> = {
+      ...(query.active !== undefined ? { active: query.active } : {}),
+    };
+    if (!query.search) {
+      return baseWhere;
+    }
+
+    const search = ILike(`%${query.search}%`);
+    return [{ ...baseWhere, name: search }, { ...baseWhere, description: search }];
   }
 
   private toAchievementResponse(achievement: AchievementConfig): AchievementConfigResponseDto {
