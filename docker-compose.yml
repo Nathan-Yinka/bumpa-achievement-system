@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: bumpa
       POSTGRES_PASSWORD: bumpa
       POSTGRES_DB: postgres
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
+    networks:
+      - backend
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
@@ -21,9 +23,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: bumpa
       RABBITMQ_DEFAULT_PASS: bumpa
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    expose:
+      - "5672"
+      - "15672"
+    networks:
+      - backend
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -32,8 +36,10 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
+    networks:
+      - backend
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -55,8 +61,12 @@ services:
       LOYALTY_SERVICE_PORT: 3002
       CASHBACK_SERVICE_HOST: cashback-service
       CASHBACK_SERVICE_PORT: 3004
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-bumpa-local-admin-key}
     ports:
-      - "3000:3000"
+      - "${API_GATEWAY_HOST_PORT:-3000}:3000"
+    networks:
+      - edge
+      - backend
 
   purchase-service:
     build:
@@ -82,8 +92,10 @@ services:
       OUTBOX_MAX_ATTEMPTS: 5
       OUTBOX_LOCK_TTL_MS: 5000
       OUTBOX_POLL_INTERVAL_MS: 30000
-    ports:
-      - "3001:3001"
+    expose:
+      - "3001"
+    networks:
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,8 +128,10 @@ services:
       OUTBOX_MAX_ATTEMPTS: 5
       OUTBOX_LOCK_TTL_MS: 5000
       OUTBOX_POLL_INTERVAL_MS: 30000
-    ports:
-      - "3002:3002"
+    expose:
+      - "3002"
+    networks:
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -154,8 +168,10 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       PAYSTACK_WEBHOOK_SECRET: ${PAYSTACK_WEBHOOK_SECRET:-}
       CASHBACK_AMOUNT_KOBO: ${CASHBACK_AMOUNT_KOBO:-30000}
-    ports:
-      - "3004:3004"
+    expose:
+      - "3004"
+    networks:
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -166,3 +182,7 @@ services:
 
 volumes:
   postgres_data:
+
+networks:
+  edge:
+  backend:
