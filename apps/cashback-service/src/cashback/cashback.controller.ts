@@ -15,8 +15,9 @@ export class CashbackController {
     return this.cashbackService.listTransactions(query);
   }
 
+  // Queued because provider retries can take a few seconds.
   @Post(':id/retry')
-  @HttpCode(200)
+  @HttpCode(202)
   retry(@Param('id') id: string, @Body() body: RetryCashbackDto): Promise<void> {
     return this.cashbackService.retryFailedTransaction(id, body);
   }

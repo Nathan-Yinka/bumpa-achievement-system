@@ -15,13 +15,13 @@ import {
 import { OutboxService } from '@bumpa/outbox-sdk';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { Brackets, DataSource, EntityManager, Repository } from 'typeorm';
-import { EnvKey, getNumberEnv, getRedisConfig } from '../config/env';
+import { DataSource, EntityManager, FindOptionsWhere, ILike, IsNull, LessThan, LessThanOrEqual, Repository } from 'typeorm';
+import { EnvKey, getCashbackRetryConfig, getNumberEnv, getRedisConfig } from '../config/env';
 import { CashbackProcessingStatus, CashbackTransaction } from '../entities/cashback-transaction.entity';
 import { OutboxEvent } from '../entities/outbox-event.entity';
 import { PayoutAccount } from '../entities/payout-account.entity';
 import { ProcessedEvent } from '../entities/processed-event.entity';
-import { MissingBankDetailsError } from '../payments/payment-provider';
+import { classifyCashbackFailure, MissingBankDetailsError } from '../payments/payment-provider';
 import { PaymentProviderFactory } from '../payments/payment-provider.factory';
 import type { ListCashbacksQueryDto } from './dto/list-cashbacks-query.dto';
 import type { PaginatedCashbacksResponseDto } from './dto/paginated-cashbacks-response.dto';
@@ -42,6 +42,8 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
   private queue!: Queue<CashbackJob>;
   private worker!: Worker<CashbackJob>;
   private redis!: IORedis;
+  private retryScanTimer?: NodeJS.Timeout;
+  private retryScanRunning = false;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -59,16 +61,27 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
     this.worker = new Worker<CashbackJob>(
       JobQueueName.CashbackPayments,
       async (job) => {
-        await this.processPayment(job.data.transactionId, job.data.event);
+        const maxAttempts = job.opts.attempts ?? 1;
+        const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
+        await this.processPayment(job.data.transactionId, job.data.event, isFinalAttempt);
       },
       {
         connection: this.redis,
         concurrency: 5,
       },
     );
+
+    // Auto-retry only failed transactions marked retryable.
+    const { scanIntervalMs } = getCashbackRetryConfig();
+    this.retryScanTimer = setInterval(() => {
+      void this.retryEligibleFailedTransactions();
+    }, scanIntervalMs);
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.retryScanTimer) {
+      clearInterval(this.retryScanTimer);
+    }
     await this.worker?.close();
     await this.queue?.close();
     await this.redis?.quit();
@@ -83,8 +96,7 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // A reward amount of 0 on the payload should be respected, so this checks for
-    // null/undefined only, not falsy.
+    // Keep 0 as a valid configured reward amount.
     const amountKobo = event.payload.rewardAmountKobo ?? getNumberEnv(EnvKey.CashbackAmountKobo, 30000);
     const transactionId = createReadableId(EntityIdPrefix.Cashback);
     const providerName = this.providerFactory.getProvider().name;
@@ -136,31 +148,12 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
   async listTransactions(query: ListCashbacksQueryDto): Promise<PaginatedCashbacksResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-
-    const qb = this.transactionRepository.createQueryBuilder('transaction').orderBy('transaction.createdAt', 'DESC');
-
-    if (query.userId) {
-      qb.andWhere('transaction.userId = :userId', { userId: query.userId });
-    }
-    if (query.status) {
-      qb.andWhere('transaction.status = :status', { status: query.status });
-    }
-    if (query.search) {
-      const search = `%${query.search}%`;
-      qb.andWhere(
-        new Brackets((sub) => {
-          sub
-            .where('transaction.badgeName ILIKE :search', { search })
-            .orWhere('transaction.userId ILIKE :search', { search })
-            .orWhere('transaction.providerReference ILIKE :search', { search });
-        }),
-      );
-    }
-
-    const [items, total] = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    const [items, total] = await this.transactionRepository.findAndCount({
+      where: this.buildTransactionWhere(query),
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
     return {
       items,
@@ -168,7 +161,6 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Resumes a FAILED transaction, optionally updating the payout account's bank details first. */
   async retryFailedTransaction(transactionId: string, override?: RetryBankDetailsOverride): Promise<void> {
     const transaction = await this.transactionRepository.findOneBy({ id: transactionId });
     if (!transaction) {
@@ -200,7 +192,66 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const event: BadgeUnlockedEvent = createDomainEvent(
+    if (override?.bankAccountNumber && override.bankCode) {
+      // New bank details reset the failed-account retry count.
+      await this.transactionRepository.update({ id: transactionId }, { retryCount: 0 });
+    }
+
+    await this.retryPayment(transactionId, this.buildRetryEvent(transaction, payoutAccount));
+  }
+
+  async retryEligibleFailedTransactions(): Promise<number> {
+    if (this.retryScanRunning) {
+      return 0;
+    }
+
+    this.retryScanRunning = true;
+    try {
+      const { maxAutoRetries } = getCashbackRetryConfig();
+      const candidates = await this.transactionRepository.find({
+        where: [
+          {
+            status: PaymentStatus.Failed,
+            retryable: true,
+            retryCount: LessThan(maxAutoRetries),
+            nextRetryAt: IsNull(),
+          },
+          {
+            status: PaymentStatus.Failed,
+            retryable: true,
+            retryCount: LessThan(maxAutoRetries),
+            nextRetryAt: LessThanOrEqual(new Date()),
+          },
+        ],
+      });
+
+      let retried = 0;
+      for (const transaction of candidates) {
+        const payoutAccount = await this.payoutAccountRepository.findOneBy({ userId: transaction.userId });
+        if (!payoutAccount?.bankAccountNumber || !payoutAccount.bankCode) {
+          continue;
+        }
+
+        try {
+          await this.retryPayment(transaction.id, this.buildRetryEvent(transaction, payoutAccount));
+          retried += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Auto-retry for cashback transaction ${transaction.id} threw unexpectedly: ${message}`);
+        }
+      }
+
+      if (retried > 0) {
+        this.logger.log(`Queued auto-retry for ${retried} cashback transaction(s)`);
+      }
+      return retried;
+    } finally {
+      this.retryScanRunning = false;
+    }
+  }
+
+  private buildRetryEvent(transaction: CashbackTransaction, payoutAccount: PayoutAccount): BadgeUnlockedEvent {
+    return createDomainEvent(
       DomainEventName.BadgeUnlocked,
       {
         badge_name: transaction.badgeName,
@@ -217,33 +268,53 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
       transaction.correlationId ?? createReadableId(EntityIdPrefix.Event),
       createReadableId(EntityIdPrefix.Event),
     );
-
-    await this.retryPayment(transactionId, event);
   }
 
-  private async processPayment(transactionId: string, event: BadgeUnlockedEvent): Promise<void> {
+  private buildTransactionWhere(
+    query: ListCashbacksQueryDto,
+  ): FindOptionsWhere<CashbackTransaction> | FindOptionsWhere<CashbackTransaction>[] {
+    const baseWhere: FindOptionsWhere<CashbackTransaction> = {
+      ...(query.userId ? { userId: query.userId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    if (!query.search) {
+      return baseWhere;
+    }
+
+    const search = ILike(`%${query.search}%`);
+    return [
+      { ...baseWhere, badgeName: search },
+      { ...baseWhere, userId: search },
+      { ...baseWhere, providerReference: search },
+    ];
+  }
+
+  private async processPayment(transactionId: string, event: BadgeUnlockedEvent, isFinalAttempt = true): Promise<void> {
     const transaction = await this.transactionRepository.findOneByOrFail({ id: transactionId });
     if (transaction.status !== PaymentStatus.Pending) {
-      // Already claimed, already terminal, or a replayed event — don't call the provider again.
+      // Avoid duplicate provider calls.
       this.logger.log(
         `Skipping cashback payment for transaction ${transactionId}; status is already "${transaction.status}"`,
       );
       return;
     }
 
-    // Flips the transaction to PROCESSING before calling the provider; only one caller can
-    // win this update, so two workers on the same transaction can't both trigger a payment.
+    const provider = this.providerFactory.getProvider();
+    // Save the reference before calling Paystack so webhooks can find the row.
+    const reference = `${provider.name}_${createReadableId(EntityIdPrefix.Cashback)}`;
+
+    // Only one worker can claim a pending transaction.
     const claim = await this.transactionRepository.update(
       { id: transactionId, status: PaymentStatus.Pending },
-      { status: CashbackProcessingStatus },
+      { status: CashbackProcessingStatus, providerReference: reference },
     );
     if (!claim.affected) {
       this.logger.log(`Skipping cashback payment for transaction ${transactionId}; lost the claim race`);
       return;
     }
     transaction.status = CashbackProcessingStatus;
+    transaction.providerReference = reference;
 
-    const provider = this.providerFactory.getProvider();
     this.logger.log(
       `Attempting cashback payment for transaction ${transactionId} via provider "${provider.name}" (amount ${transaction.amountKobo} kobo)`,
     );
@@ -258,6 +329,7 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
         bankAccountNumber: payoutAccount.bankAccountNumber,
         bankCode: payoutAccount.bankCode,
         providerRecipientCode: payoutAccount.providerRecipientCode,
+        reference,
       });
 
       const outboxEventIds: string[] = [];
@@ -266,7 +338,10 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
         transaction.provider = result.provider;
         transaction.providerReference = result.reference;
         transaction.providerRecipientCode = result.providerRecipientCode;
-        transaction.failureReason = undefined;
+        transaction.failureReason = null;
+        transaction.failureCode = null;
+        transaction.retryable = null;
+        transaction.nextRetryAt = null;
         await manager.save(CashbackTransaction, transaction);
         if (result.providerRecipientCode) {
           payoutAccount.providerRecipientCode = result.providerRecipientCode;
@@ -281,11 +356,28 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
       await this.outboxService.publishMany(outboxEventIds);
       this.logger.log(`Cashback payment for transaction ${transactionId} completed with status ${result.status}`);
     } catch (error) {
-      const isMissingBankDetails = error instanceof MissingBankDetailsError;
-      const message = error instanceof Error ? error.message : String(error);
+      const failure = classifyCashbackFailure(error);
+
+      // Let BullMQ handle short retryable failures first.
+      if (failure.retryable && !isFinalAttempt) {
+        await this.transactionRepository.update(
+          { id: transactionId, status: CashbackProcessingStatus },
+          { status: PaymentStatus.Pending },
+        );
+        this.logger.warn(
+          `Cashback payment for transaction ${transactionId} failed (retryable): ${failure.message}. Retrying.`,
+        );
+        throw failure;
+      }
 
       transaction.status = PaymentStatus.Failed;
-      transaction.failureReason = message;
+      transaction.failureReason = failure.message;
+      transaction.failureCode = failure.code;
+      transaction.retryable = failure.retryable;
+      transaction.retryCount += 1;
+      transaction.nextRetryAt = failure.retryable
+        ? new Date(Date.now() + this.autoRetryDelayMs(transaction.retryCount))
+        : undefined;
 
       let outboxEventId: string | undefined;
       await this.dataSource.transaction(async (manager) => {
@@ -296,21 +388,27 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
         await this.outboxService.publishById(outboxEventId);
       }
 
-      if (isMissingBankDetails) {
-        // Missing bank details won't change on retry, so mark the job done instead of
-        // retrying. Call retryPayment() once the user's bank details are on file.
+      if (!failure.retryable) {
+        // Hard failures wait for manual retry.
         this.logger.error(
-          `Cashback payment for transaction ${transactionId} failed permanently: missing bank details for user ${event.payload.user.id}. Not retrying; requires a manual/ops-triggered retry once bank details are added.`,
+          `Cashback payment for transaction ${transactionId} failed permanently (${failure.code}): ${failure.message}. Needs a manual retry.`,
         );
         return;
       }
 
-      this.logger.error(`Cashback payment for transaction ${transactionId} failed: ${message}`);
-      throw error;
+      this.logger.error(
+        `Cashback payment for transaction ${transactionId} failed (retryable, attempt ${transaction.retryCount}): ${failure.message}. Will auto-retry.`,
+      );
     }
   }
 
-  /** Resets a failed transaction to pending and reprocesses it. Not wired to an endpoint yet. */
+  private autoRetryDelayMs(retryCount: number): number {
+    const { baseDelayMs } = getCashbackRetryConfig();
+    const oneHourMs = 60 * 60 * 1000;
+    return Math.min(baseDelayMs * 2 ** Math.max(0, retryCount - 1), oneHourMs);
+  }
+
+  // Queue retries so Paystack calls do not block HTTP requests.
   async retryPayment(transactionId: string, event: BadgeUnlockedEvent): Promise<void> {
     const transaction = await this.transactionRepository.findOneByOrFail({ id: transactionId });
     if (transaction.status !== PaymentStatus.Failed) {
@@ -320,9 +418,14 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
 
     await this.transactionRepository.update(
       { id: transactionId, status: PaymentStatus.Failed },
-      { status: PaymentStatus.Pending, failureReason: undefined },
+      { status: PaymentStatus.Pending, failureReason: null, nextRetryAt: null },
     );
-    await this.processPayment(transactionId, event);
+    await this.queue.add(
+      JobName.SendCashback,
+      { transactionId, event },
+      { attempts: 3, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: true, removeOnFail: false },
+    );
+    this.logger.log(`Queued retry for cashback transaction ${transactionId}`);
   }
 
   private async saveCashbackProcessedEvent(
@@ -339,6 +442,13 @@ export class CashbackService implements OnModuleInit, OnModuleDestroy {
         amountKobo: transaction.amountKobo,
         providerReference: transaction.providerReference ?? '',
         status,
+        ...(status === PaymentStatus.Failed
+          ? {
+              failureCode: transaction.failureCode ?? undefined,
+              failureReason: transaction.failureReason ?? undefined,
+              retryable: transaction.retryable ?? undefined,
+            }
+          : {}),
       },
       event.correlationId,
       createReadableId(EntityIdPrefix.Event),

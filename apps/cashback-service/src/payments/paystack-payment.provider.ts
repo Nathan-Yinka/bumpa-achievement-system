@@ -1,14 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  createReadableId,
-  EntityIdPrefix,
-  type JsonObject,
-  type JsonValue,
-  PaymentProviderName,
-  PaymentStatus,
-} from '@bumpa/events-sdk';
+import { CashbackFailureCode, type JsonObject, type JsonValue, PaymentProviderName, PaymentStatus } from '@bumpa/events-sdk';
 import { EnvKey } from '../config/env';
-import { MissingBankDetailsError } from './payment-provider';
+import { CashbackPaymentError, classifyCashbackFailure, MissingBankDetailsError } from './payment-provider';
 import type { CashbackPaymentRequest, CashbackPaymentResult, PaymentProvider } from './payment-provider';
 
 interface PaystackRecipient {
@@ -18,6 +11,21 @@ interface PaystackRecipient {
 interface PaystackTransfer {
   reference: string;
 }
+
+// Prefer Paystack error codes over message text where available.
+const PAYSTACK_ERROR_CODE_MAP: Record<string, { code: CashbackFailureCode; retryable: boolean }> = {
+  insufficient_balance: { code: CashbackFailureCode.InsufficientBalance, retryable: true },
+  invalid_bank_code: { code: CashbackFailureCode.InvalidAccount, retryable: false },
+  invalid_account_number: { code: CashbackFailureCode.InvalidAccount, retryable: false },
+  invalid_transfer_recipient: { code: CashbackFailureCode.InvalidAccount, retryable: false },
+  duplicate_transfer_reference: { code: CashbackFailureCode.DuplicateReference, retryable: true },
+  // Broken provider config is not retryable.
+  invalid_key: { code: CashbackFailureCode.ProviderMisconfigured, retryable: false },
+  // Bad request shape needs a code/config fix.
+  missing_params: { code: CashbackFailureCode.ProviderRejected, retryable: false },
+  invalid_params: { code: CashbackFailureCode.ProviderRejected, retryable: false },
+  invalid_amount: { code: CashbackFailureCode.ProviderRejected, retryable: false },
+};
 
 @Injectable()
 export class PaystackPaymentProvider implements PaymentProvider {
@@ -31,7 +39,7 @@ export class PaystackPaymentProvider implements PaymentProvider {
       this.logger.warn(`No Paystack secret key configured; dry-running cashback for user ${request.userId}`);
       return {
         provider: this.name,
-        reference: `${this.name}_dry_run_${createReadableId(EntityIdPrefix.Cashback)}`,
+        reference: request.reference,
         status: PaymentStatus.Successful,
       };
     }
@@ -84,34 +92,51 @@ export class PaystackPaymentProvider implements PaymentProvider {
     request: CashbackPaymentRequest,
     recipientCode: string,
   ): Promise<PaystackTransfer> {
-    const reference = `paystack_${createReadableId(EntityIdPrefix.Cashback)}`;
     const data = await this.postToPaystack(secretKey, '/transfer', {
       source: 'balance',
       amount: request.amountKobo,
-      reference,
+      reference: request.reference,
       recipient: recipientCode,
       reason: `Bumpa cashback for ${request.badgeName}`,
     });
 
     return {
-      reference: this.readString(data, 'reference') ?? reference,
+      reference: this.readString(data, 'reference') ?? request.reference,
     };
   }
 
   private async postToPaystack(secretKey: string, path: string, payload: JsonObject): Promise<JsonObject> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${secretKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${secretKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new CashbackPaymentError(`Could not reach Paystack: ${message}`, CashbackFailureCode.ProviderUnavailable, true);
+    }
+
     const body = this.parseJsonObject(await response.text());
     const message = this.readString(body, 'message') ?? 'Paystack request failed';
 
     if (!response.ok || this.readBoolean(body, 'status') !== true) {
-      throw new Error(message);
+      // Provider downtime/rate limits are retryable.
+      if (response.status === 429 || response.status >= 500) {
+        throw new CashbackPaymentError(message, CashbackFailureCode.ProviderUnavailable, true);
+      }
+
+      const errorCode = this.readString(body, 'code')?.toLowerCase();
+      const mapped = errorCode ? PAYSTACK_ERROR_CODE_MAP[errorCode] : undefined;
+      if (mapped) {
+        throw new CashbackPaymentError(message, mapped.code, mapped.retryable);
+      }
+
+      throw classifyCashbackFailure(new Error(message));
     }
 
     return this.readRequiredObject(body, 'data');

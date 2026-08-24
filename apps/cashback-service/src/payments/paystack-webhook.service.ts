@@ -16,6 +16,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { EnvKey } from '../config/env';
 import { CashbackTransaction } from '../entities/cashback-transaction.entity';
 import { OutboxEvent } from '../entities/outbox-event.entity';
+import { classifyCashbackFailure } from './payment-provider';
 
 interface PaystackWebhookEvent {
   event: string;
@@ -49,7 +50,7 @@ export class PaystackWebhookService {
   }
 
   private verifySignature(rawBody: Buffer | undefined, signature?: string): void {
-    const secret = process.env[EnvKey.PaystackWebhookSecret] || process.env[EnvKey.PaystackSecretKey];
+    const secret = process.env[EnvKey.PaystackSecretKey];
     if (!secret || !rawBody || !signature) {
       this.logger.warn('Rejected Paystack webhook: missing secret, raw body, or signature');
       throw new UnauthorizedException('Paystack webhook signature could not be verified');
@@ -74,10 +75,7 @@ export class PaystackWebhookService {
   private async markTransferSuccessful(data: JsonObject): Promise<void> {
     const reference = this.readRequiredString(data, 'reference');
     const transaction = await this.transactionRepository.findOneBy({ providerReference: reference });
-    // PENDING (async Paystack transfer awaiting webhook confirmation) and PROCESSING (claimed
-    // by the worker but the provider call is/was in flight) are both non-terminal and must
-    // still be eligible to move to SUCCESSFUL here — only a transaction already SUCCESSFUL is
-    // skipped, so this webhook stays idempotent on retry/duplicate delivery.
+    // Only terminal SUCCESSFUL rows are skipped.
     if (!transaction || transaction.status === PaymentStatus.Successful) {
       this.logger.log(`Ignoring transfer.success webhook for reference ${reference}: no pending transaction found`);
       return;
@@ -86,7 +84,9 @@ export class PaystackWebhookService {
     let outboxEventId: string | undefined;
     await this.dataSource.transaction(async (manager) => {
       transaction.status = PaymentStatus.Successful;
-      transaction.failureReason = undefined;
+      transaction.failureReason = null;
+      transaction.failureCode = null;
+      transaction.retryable = null;
       await manager.save(CashbackTransaction, transaction);
       outboxEventId = await this.saveCashbackProcessedEvent(manager, transaction, PaymentStatus.Successful);
     });
@@ -99,19 +99,22 @@ export class PaystackWebhookService {
   private async markTransferFailed(data: JsonObject): Promise<void> {
     const reference = this.readRequiredString(data, 'reference');
     const transaction = await this.transactionRepository.findOneBy({ providerReference: reference });
-    // See the comment in markTransferSuccessful — PENDING and PROCESSING are both non-terminal
-    // and must still be eligible to move to FAILED here; only an already-FAILED transaction is
-    // skipped.
+    // Only terminal FAILED rows are skipped.
     if (!transaction || transaction.status === PaymentStatus.Failed) {
       this.logger.log(`Ignoring transfer.failed webhook for reference ${reference}: no eligible transaction found`);
       return;
     }
 
+    const reason =
+      this.readString(data, 'reason') ?? this.readString(data, 'failure_reason') ?? 'Paystack transfer failed';
+    const failure = classifyCashbackFailure(new Error(reason));
+
     let outboxEventId: string | undefined;
     await this.dataSource.transaction(async (manager) => {
       transaction.status = PaymentStatus.Failed;
-      transaction.failureReason =
-        this.readString(data, 'reason') ?? this.readString(data, 'failure_reason') ?? 'Paystack transfer failed';
+      transaction.failureReason = failure.message;
+      transaction.failureCode = failure.code;
+      transaction.retryable = failure.retryable;
       await manager.save(CashbackTransaction, transaction);
       outboxEventId = await this.saveCashbackProcessedEvent(manager, transaction, PaymentStatus.Failed);
     });
@@ -134,6 +137,13 @@ export class PaystackWebhookService {
         amountKobo: transaction.amountKobo,
         providerReference: transaction.providerReference ?? '',
         status,
+        ...(status === PaymentStatus.Failed
+          ? {
+              failureCode: transaction.failureCode ?? undefined,
+              failureReason: transaction.failureReason ?? undefined,
+              retryable: transaction.retryable ?? undefined,
+            }
+          : {}),
       },
       transaction.correlationId ?? createReadableId(EntityIdPrefix.Event),
       createReadableId(EntityIdPrefix.Event),

@@ -14,8 +14,7 @@ export class PaymentProviderFactory {
     private readonly mockProvider: MockPaymentProvider,
     private readonly paystackProvider: PaystackPaymentProvider,
   ) {
-    // Registry keyed by provider name — adding a third provider only means constructing it
-    // and adding one more entry here, no branching logic to touch.
+    // Registry keeps provider selection out of branching logic.
     this.providers = new Map<PaymentProviderName, PaymentProvider>([
       [PaymentProviderName.Mock, this.mockProvider],
       [PaymentProviderName.Paystack, this.paystackProvider],

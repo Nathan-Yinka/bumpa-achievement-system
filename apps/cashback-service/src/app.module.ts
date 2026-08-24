@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BrokerModule } from '@bumpa/broker-sdk';
 import { ServiceName } from '@bumpa/events-sdk';
-import { CorrelationIdMiddleware } from '@bumpa/logger-sdk';
+import { CorrelationIdMiddleware, RequestLoggingMiddleware } from '@bumpa/logger-sdk';
 import { CashbackModule } from './cashback/cashback.module';
 import { EnvKey, getPostgresConfig, getRabbitMqConfig, validateConfig } from './config/env';
 import { CashbackTransaction } from './entities/cashback-transaction.entity';
@@ -12,6 +12,7 @@ import { PayoutAccount } from './entities/payout-account.entity';
 import { ProcessedEvent } from './entities/processed-event.entity';
 import { HealthController } from './health.controller';
 import { CreateCashbackSchema2026082300030 } from './migrations/2026082300030-CreateCashbackSchema';
+import { AddCashbackRetryTracking2026082400040 } from './migrations/2026082400040-AddCashbackRetryTracking';
 
 const entities = [CashbackTransaction, OutboxEvent, PayoutAccount, ProcessedEvent];
 
@@ -21,7 +22,7 @@ const entities = [CashbackTransaction, OutboxEvent, PayoutAccount, ProcessedEven
     TypeOrmModule.forRoot({
       ...getPostgresConfig(EnvKey.CashbackDatabaseName),
       entities,
-      migrations: [CreateCashbackSchema2026082300030],
+      migrations: [CreateCashbackSchema2026082300030, AddCashbackRetryTracking2026082400040],
       migrationsRun: true,
       synchronize: false,
     }),
@@ -32,6 +33,6 @@ const entities = [CashbackTransaction, OutboxEvent, PayoutAccount, ProcessedEven
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    consumer.apply(CorrelationIdMiddleware, RequestLoggingMiddleware).forRoutes('*');
   }
 }

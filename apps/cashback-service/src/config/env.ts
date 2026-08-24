@@ -20,8 +20,10 @@ export enum EnvKey {
   CashbackDatabaseName = 'CASHBACK_DATABASE_NAME',
   PaymentProvider = 'PAYMENT_PROVIDER',
   PaystackSecretKey = 'PAYSTACK_SECRET_KEY',
-  PaystackWebhookSecret = 'PAYSTACK_WEBHOOK_SECRET',
   CashbackAmountKobo = 'CASHBACK_AMOUNT_KOBO',
+  CashbackRetryIntervalMs = 'CASHBACK_RETRY_INTERVAL_MS',
+  CashbackRetryBaseDelayMs = 'CASHBACK_RETRY_BASE_DELAY_MS',
+  CashbackMaxAutoRetries = 'CASHBACK_MAX_AUTO_RETRIES',
 }
 
 const envSchema = z.object({
@@ -44,8 +46,10 @@ const envSchema = z.object({
   [EnvKey.CashbackDatabaseName]: z.string().min(1),
   [EnvKey.PaymentProvider]: z.enum(['mock', 'paystack']).default('mock'),
   [EnvKey.PaystackSecretKey]: z.string().optional(),
-  [EnvKey.PaystackWebhookSecret]: z.string().optional(),
   [EnvKey.CashbackAmountKobo]: z.coerce.number().int().positive().default(30000),
+  [EnvKey.CashbackRetryIntervalMs]: z.coerce.number().int().positive().default(60000),
+  [EnvKey.CashbackRetryBaseDelayMs]: z.coerce.number().int().positive().default(5 * 60 * 1000),
+  [EnvKey.CashbackMaxAutoRetries]: z.coerce.number().int().nonnegative().default(5),
 });
 
 export type ValidatedEnv = Record<string, string | number | undefined>;
@@ -146,5 +150,19 @@ export function getOutboxRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Ou
     maxAttempts: getNumberEnv(EnvKey.OutboxMaxAttempts, 5, env),
     lockTtlMs: getNumberEnv(EnvKey.OutboxLockTtlMs, 5000, env),
     pollIntervalMs: getNumberEnv(EnvKey.OutboxPollIntervalMs, 30000, env),
+  };
+}
+
+export interface CashbackRetryConfig {
+  scanIntervalMs: number;
+  baseDelayMs: number;
+  maxAutoRetries: number;
+}
+
+export function getCashbackRetryConfig(env: NodeJS.ProcessEnv = process.env): CashbackRetryConfig {
+  return {
+    scanIntervalMs: getNumberEnv(EnvKey.CashbackRetryIntervalMs, 60000, env),
+    baseDelayMs: getNumberEnv(EnvKey.CashbackRetryBaseDelayMs, 5 * 60 * 1000, env),
+    maxAutoRetries: getNumberEnv(EnvKey.CashbackMaxAutoRetries, 5, env),
   };
 }

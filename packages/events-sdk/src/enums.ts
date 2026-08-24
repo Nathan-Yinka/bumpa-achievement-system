@@ -46,6 +46,17 @@ export enum PaymentProviderName {
   Paystack = 'paystack',
 }
 
+export enum CashbackFailureCode {
+  MissingBankDetails = 'MISSING_BANK_DETAILS',
+  InvalidAccount = 'INVALID_ACCOUNT',
+  InsufficientBalance = 'INSUFFICIENT_BALANCE',
+  DuplicateReference = 'DUPLICATE_REFERENCE',
+  ProviderUnavailable = 'PROVIDER_UNAVAILABLE',
+  ProviderRejected = 'PROVIDER_REJECTED',
+  // Provider config is broken; retrying would repeat the same failure.
+  ProviderMisconfigured = 'PROVIDER_MISCONFIGURED',
+}
+
 export enum BrokerQueueName {
   LoyaltyPurchaseCompleted = 'loyalty.purchase-completed',
   CashbackBadgeUnlocked = 'cashback.badge-unlocked',

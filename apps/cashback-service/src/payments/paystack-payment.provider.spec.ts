@@ -1,6 +1,7 @@
 import type { JsonObject } from '@bumpa/events-sdk';
 import { PaymentProviderName, PaymentStatus } from '@bumpa/events-sdk';
 import { EnvKey } from '../config/env';
+import { CashbackPaymentError } from './payment-provider';
 import { PaystackPaymentProvider } from './paystack-payment.provider';
 
 interface FetchCall {
@@ -28,6 +29,7 @@ describe('PaystackPaymentProvider', () => {
 
     const result = await provider.sendCashback({
       userId: 'usr_test',
+      reference: 'cbk_test_reference',
       userName: 'Amina Bello',
       badgeName: 'Beginner',
       amountKobo: 30000,
@@ -37,7 +39,7 @@ describe('PaystackPaymentProvider', () => {
 
     expect(result.provider).toBe(PaymentProviderName.Paystack);
     expect(result.status).toBe(PaymentStatus.Successful);
-    expect(result.reference).toMatch(/^paystack_dry_run_cbk_[a-f0-9]{12}$/);
+    expect(result.reference).toBe('cbk_test_reference');
   });
 
   it('creates a recipient and initiates a Paystack transfer', async () => {
@@ -55,6 +57,7 @@ describe('PaystackPaymentProvider', () => {
 
     const result = await provider.sendCashback({
       userId: 'usr_test',
+      reference: 'cbk_test_reference',
       userName: 'Amina Bello',
       badgeName: 'Beginner',
       amountKobo: 30000,
@@ -98,6 +101,7 @@ describe('PaystackPaymentProvider', () => {
 
     const result = await provider.sendCashback({
       userId: 'usr_test',
+      reference: 'cbk_test_reference',
       userName: 'Amina Bello',
       badgeName: 'Beginner',
       amountKobo: 30000,
@@ -114,6 +118,174 @@ describe('PaystackPaymentProvider', () => {
     expect(result.providerRecipientCode).toBe('RCP_existing');
   });
 
+  it('classifies insufficient balance as a retryable failure', async () => {
+    process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
+    global.fetch = jest.fn(async (): Promise<Response> =>
+      new Response(JSON.stringify({ status: false, message: 'You have insufficient balance for this transaction' }), {
+        status: 400,
+      }),
+    ) as typeof fetch;
+    const provider = new PaystackPaymentProvider();
+
+    const error = await provider
+      .sendCashback({
+        userId: 'usr_test',
+        reference: 'cbk_test_reference',
+        userName: 'Amina Bello',
+        badgeName: 'Beginner',
+        amountKobo: 30000,
+        bankAccountNumber: '0123456789',
+        bankCode: '058',
+        providerRecipientCode: 'RCP_existing',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CashbackPaymentError);
+    expect((error as CashbackPaymentError).code).toBe('INSUFFICIENT_BALANCE');
+    expect((error as CashbackPaymentError).retryable).toBe(true);
+  });
+
+  it('classifies Paystack\'s actual "balance is not enough" wording as insufficient balance too', async () => {
+    process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
+    global.fetch = jest.fn(async (): Promise<Response> =>
+      new Response(JSON.stringify({ status: false, message: 'Your balance is not enough to fulfil this request' }), {
+        status: 400,
+      }),
+    ) as typeof fetch;
+    const provider = new PaystackPaymentProvider();
+
+    const error = await provider
+      .sendCashback({
+        userId: 'usr_test',
+        reference: 'cbk_test_reference',
+        userName: 'Amina Bello',
+        badgeName: 'Beginner',
+        amountKobo: 30000,
+        bankAccountNumber: '0123456789',
+        bankCode: '058',
+        providerRecipientCode: 'RCP_existing',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CashbackPaymentError);
+    expect((error as CashbackPaymentError).code).toBe('INSUFFICIENT_BALANCE');
+    expect((error as CashbackPaymentError).retryable).toBe(true);
+  });
+
+  // Covers Paystack's code-based error response shape.
+  describe('classifies by Paystack\'s error `code` field (not just message wording)', () => {
+    const cases: Array<{ paystackCode: string; message: string; expectedCode: string; retryable: boolean }> = [
+      { paystackCode: 'insufficient_balance', message: 'Your balance is not enough to fulfil this request', expectedCode: 'INSUFFICIENT_BALANCE', retryable: true },
+      { paystackCode: 'invalid_bank_code', message: 'Bank is invalid', expectedCode: 'INVALID_ACCOUNT', retryable: false },
+      { paystackCode: 'invalid_account_number', message: 'Account number is invalid', expectedCode: 'INVALID_ACCOUNT', retryable: false },
+      { paystackCode: 'invalid_transfer_recipient', message: 'Recipient specified is invalid', expectedCode: 'INVALID_ACCOUNT', retryable: false },
+      { paystackCode: 'invalid_Key', message: 'Invalid key', expectedCode: 'PROVIDER_MISCONFIGURED', retryable: false },
+      { paystackCode: 'invalid_amount', message: 'Amount must be a positive integer.', expectedCode: 'PROVIDER_REJECTED', retryable: false },
+      { paystackCode: 'missing_params', message: 'Either authorization_code or account_number must be passed.', expectedCode: 'PROVIDER_REJECTED', retryable: false },
+    ];
+
+    for (const testCase of cases) {
+      it(`maps code "${testCase.paystackCode}" to ${testCase.expectedCode} (retryable: ${testCase.retryable})`, async () => {
+        process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
+        global.fetch = jest.fn(async (): Promise<Response> =>
+          new Response(JSON.stringify({ status: false, message: testCase.message, code: testCase.paystackCode }), { status: 400 }),
+        ) as typeof fetch;
+        const provider = new PaystackPaymentProvider();
+
+        const error = await provider
+          .sendCashback({
+            userId: 'usr_test',
+            reference: 'cbk_test_reference',
+            userName: 'Amina Bello',
+            badgeName: 'Beginner',
+            amountKobo: 30000,
+            bankAccountNumber: '0123456789',
+            bankCode: '058',
+            providerRecipientCode: 'RCP_existing',
+          })
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(CashbackPaymentError);
+        expect((error as CashbackPaymentError).code).toBe(testCase.expectedCode);
+        expect((error as CashbackPaymentError).retryable).toBe(testCase.retryable);
+      });
+    }
+  });
+
+  it('classifies an unresolvable account as a permanent, non-retryable failure', async () => {
+    process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
+    global.fetch = jest.fn(async (): Promise<Response> =>
+      new Response(JSON.stringify({ status: false, message: 'Cannot resolve account' }), { status: 422 }),
+    ) as typeof fetch;
+    const provider = new PaystackPaymentProvider();
+
+    const error = await provider
+      .sendCashback({
+        userId: 'usr_test',
+        reference: 'cbk_test_reference',
+        userName: 'Amina Bello',
+        badgeName: 'Beginner',
+        amountKobo: 30000,
+        bankAccountNumber: '0123456789',
+        bankCode: '058',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CashbackPaymentError);
+    expect((error as CashbackPaymentError).code).toBe('INVALID_ACCOUNT');
+    expect((error as CashbackPaymentError).retryable).toBe(false);
+  });
+
+  it('classifies a 5xx/rate-limit response as provider-unavailable, retryable', async () => {
+    process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
+    global.fetch = jest.fn(async (): Promise<Response> =>
+      new Response(JSON.stringify({ status: false, message: 'Service temporarily unavailable' }), { status: 503 }),
+    ) as typeof fetch;
+    const provider = new PaystackPaymentProvider();
+
+    const error = await provider
+      .sendCashback({
+        userId: 'usr_test',
+        reference: 'cbk_test_reference',
+        userName: 'Amina Bello',
+        badgeName: 'Beginner',
+        amountKobo: 30000,
+        bankAccountNumber: '0123456789',
+        bankCode: '058',
+        providerRecipientCode: 'RCP_existing',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CashbackPaymentError);
+    expect((error as CashbackPaymentError).code).toBe('PROVIDER_UNAVAILABLE');
+    expect((error as CashbackPaymentError).retryable).toBe(true);
+  });
+
+  it('classifies a network failure as provider-unavailable, retryable', async () => {
+    process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
+    global.fetch = jest.fn(async () => {
+      throw new Error('fetch failed');
+    }) as typeof fetch;
+    const provider = new PaystackPaymentProvider();
+
+    const error = await provider
+      .sendCashback({
+        userId: 'usr_test',
+        reference: 'cbk_test_reference',
+        userName: 'Amina Bello',
+        badgeName: 'Beginner',
+        amountKobo: 30000,
+        bankAccountNumber: '0123456789',
+        bankCode: '058',
+        providerRecipientCode: 'RCP_existing',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CashbackPaymentError);
+    expect((error as CashbackPaymentError).code).toBe('PROVIDER_UNAVAILABLE');
+    expect((error as CashbackPaymentError).retryable).toBe(true);
+  });
+
   it('requires bank details when Paystack is enabled', async () => {
     process.env[EnvKey.PaystackSecretKey] = 'sk_test_bumpa';
     const provider = new PaystackPaymentProvider();
@@ -121,6 +293,7 @@ describe('PaystackPaymentProvider', () => {
     await expect(
       provider.sendCashback({
         userId: 'usr_test',
+        reference: 'cbk_test_reference',
         userName: 'Amina Bello',
         badgeName: 'Beginner',
         amountKobo: 30000,

@@ -7,9 +7,22 @@ import { CashbackTransaction, CashbackProcessingStatus } from '../entities/cashb
 import { OutboxEvent } from '../entities/outbox-event.entity';
 import { PayoutAccount } from '../entities/payout-account.entity';
 import { ProcessedEvent } from '../entities/processed-event.entity';
+import { EnvKey } from '../config/env';
 import { MissingBankDetailsError } from '../payments/payment-provider';
 import { PaymentProviderFactory } from '../payments/payment-provider.factory';
 import { CashbackService } from './cashback.service';
+
+// Required because retry config validates the full env schema.
+const REQUIRED_ENV: Partial<Record<EnvKey, string>> = {
+  [EnvKey.RabbitmqHost]: 'localhost',
+  [EnvKey.RabbitmqUser]: 'test',
+  [EnvKey.RabbitmqPassword]: 'test',
+  [EnvKey.RedisHost]: 'localhost',
+  [EnvKey.DatabaseHost]: 'localhost',
+  [EnvKey.DatabaseUser]: 'test',
+  [EnvKey.DatabasePassword]: 'test',
+  [EnvKey.CashbackDatabaseName]: 'test',
+};
 
 function buildEvent(overrides: Partial<BadgeUnlockedEvent['payload']['user']> = {}): BadgeUnlockedEvent {
   return {
@@ -34,12 +47,7 @@ function buildEvent(overrides: Partial<BadgeUnlockedEvent['payload']['user']> = 
   };
 }
 
-/**
- * In-memory fake modelling the single conditional UPDATE the fix relies on:
- * `UPDATE ... SET status = 'PROCESSING' WHERE id = :id AND status = 'PENDING'`.
- * Only one caller can ever flip a given row from PENDING, mirroring what Postgres guarantees
- * for a real row-level compare-and-swap.
- */
+// Fake repository with the same conditional claim behavior we rely on.
 function createFakeTransactionRepository(initial: CashbackTransaction) {
   let record: CashbackTransaction = { ...initial };
 
@@ -63,6 +71,16 @@ function createFakeTransactionRepository(initial: CashbackTransaction) {
 }
 
 describe('CashbackService', () => {
+  const originalEnv = { ...process.env };
+
+  beforeAll(() => {
+    Object.assign(process.env, REQUIRED_ENV);
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
   const baseTransaction: CashbackTransaction = {
     id: 'cbk_test',
     userId: 'usr_test',
@@ -71,6 +89,7 @@ describe('CashbackService', () => {
     status: PaymentStatus.Pending,
     provider: PaymentProviderName.Mock,
     correlationId: 'corr_test',
+    retryCount: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -174,20 +193,52 @@ describe('CashbackService', () => {
     });
   });
 
-  describe('synchronous payment failure', () => {
-    it('emits a CashbackProcessed Failed event via the outbox and rethrows', async () => {
+  describe('failure classification', () => {
+    it('marks an unrecognized provider error as a permanent, non-retryable failure', async () => {
       const fakeRepo = createFakeTransactionRepository(baseTransaction);
       const service = await createService(fakeRepo);
       provider.sendCashback.mockRejectedValue(new Error('provider exploded'));
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await expect((service as any).processPayment('cbk_test', buildEvent())).rejects.toThrow('provider exploded');
+      await expect((service as any).processPayment('cbk_test', buildEvent())).resolves.toBeUndefined();
 
       expect(manager.save).toHaveBeenCalledWith(OutboxEvent, expect.objectContaining({ eventType: 'CashbackProcessed.v1' }));
       expect(outboxService.publishById).toHaveBeenCalled();
       expect(manager.save).toHaveBeenCalledWith(
         CashbackTransaction,
-        expect.objectContaining({ status: PaymentStatus.Failed, failureReason: 'provider exploded' }),
+        expect.objectContaining({
+          status: PaymentStatus.Failed,
+          failureReason: 'provider exploded',
+          failureCode: 'PROVIDER_REJECTED',
+          retryable: false,
+        }),
+      );
+    });
+
+    it('rethrows a retryable failure (e.g. insufficient balance) while BullMQ still has attempts left', async () => {
+      const fakeRepo = createFakeTransactionRepository(baseTransaction);
+      const service = await createService(fakeRepo);
+      provider.sendCashback.mockRejectedValue(new Error('Insufficient balance for this transaction'));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect((service as any).processPayment('cbk_test', buildEvent(), false)).rejects.toThrow('Insufficient balance');
+
+      // Handed back to PENDING (not FAILED) so the next BullMQ attempt can reclaim it.
+      expect(fakeRepo.getRecord().status).toBe(PaymentStatus.Pending);
+      expect(manager.save).not.toHaveBeenCalledWith(CashbackTransaction, expect.objectContaining({ status: PaymentStatus.Failed }));
+    });
+
+    it('marks a retryable failure FAILED-but-retryable once BullMQ exhausts its attempts, without rethrowing', async () => {
+      const fakeRepo = createFakeTransactionRepository(baseTransaction);
+      const service = await createService(fakeRepo);
+      provider.sendCashback.mockRejectedValue(new Error('Insufficient balance for this transaction'));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect((service as any).processPayment('cbk_test', buildEvent(), true)).resolves.toBeUndefined();
+
+      expect(manager.save).toHaveBeenCalledWith(
+        CashbackTransaction,
+        expect.objectContaining({ status: PaymentStatus.Failed, failureCode: 'INSUFFICIENT_BALANCE', retryable: true, retryCount: 1 }),
       );
     });
   });
@@ -211,7 +262,7 @@ describe('CashbackService', () => {
       );
       expect(manager.save).toHaveBeenCalledWith(OutboxEvent, expect.objectContaining({ eventType: 'CashbackProcessed.v1' }));
       expect(outboxService.publishById).toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('missing bank details'));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('MISSING_BANK_DETAILS'));
 
       errorSpy.mockRestore();
     });
@@ -250,41 +301,34 @@ describe('CashbackService', () => {
   });
 
   describe('listTransactions (pagination)', () => {
-    function createFakeQueryBuilder(items: CashbackTransaction[], total: number) {
-      const qb: Record<string, jest.Mock> = {};
-      qb.orderBy = jest.fn(() => qb);
-      qb.andWhere = jest.fn(() => qb);
-      qb.skip = jest.fn(() => qb);
-      qb.take = jest.fn(() => qb);
-      qb.getManyAndCount = jest.fn(async () => [items, total]);
-      return qb;
-    }
-
     it('applies default paging and returns meta with total pages', async () => {
-      const qb = createFakeQueryBuilder([baseTransaction], 45);
-      const fakeRepo = { createQueryBuilder: jest.fn(() => qb) };
+      const fakeRepo = { findAndCount: jest.fn(async () => [[baseTransaction], 45]) };
       const service = await createService(fakeRepo);
 
       const result = await service.listTransactions({});
 
-      expect(qb.skip).toHaveBeenCalledWith(0);
-      expect(qb.take).toHaveBeenCalledWith(20);
+      expect(fakeRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ order: { createdAt: 'DESC' }, skip: 0, take: 20 }),
+      );
       expect(result.meta).toEqual({ page: 1, limit: 20, total: 45, totalPages: 3 });
       expect(result.items).toEqual([baseTransaction]);
     });
 
     it('applies userId, status, and search filters', async () => {
-      const qb = createFakeQueryBuilder([], 0);
-      const fakeRepo = { createQueryBuilder: jest.fn(() => qb) };
+      const fakeRepo = { findAndCount: jest.fn(async () => [[], 0]) };
       const service = await createService(fakeRepo);
 
       await service.listTransactions({ page: 2, limit: 10, userId: 'usr_test', status: PaymentStatus.Successful, search: 'Beginner' });
 
-      expect(qb.skip).toHaveBeenCalledWith(10);
-      expect(qb.take).toHaveBeenCalledWith(10);
-      expect(qb.andWhere).toHaveBeenCalledWith('transaction.userId = :userId', { userId: 'usr_test' });
-      expect(qb.andWhere).toHaveBeenCalledWith('transaction.status = :status', { status: PaymentStatus.Successful });
-      expect(qb.andWhere).toHaveBeenCalledWith(expect.anything());
+      expect(fakeRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.arrayContaining([
+            expect.objectContaining({ userId: expect.anything(), status: PaymentStatus.Successful }),
+          ]),
+          skip: 10,
+          take: 10,
+        }),
+      );
     });
   });
 
@@ -311,22 +355,61 @@ describe('CashbackService', () => {
       await expect(service.retryFailedTransaction('cbk_test')).rejects.toThrow('no bank details on file');
     });
 
-    it('resumes payment once bank details are supplied via the override', async () => {
+    it('queues a retry (does not call the provider inline) once bank details are supplied via the override', async () => {
       const fakeRepo = createFakeTransactionRepository({ ...baseTransaction, status: PaymentStatus.Failed });
       payoutAccountRepository.findOneBy.mockResolvedValue(null);
       const service = await createService(fakeRepo);
-      provider.sendCashback.mockResolvedValue({
-        provider: PaymentProviderName.Mock,
-        reference: 'mock_ref',
-        status: PaymentStatus.Successful,
-      });
+      const fakeQueue = { add: jest.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).queue = fakeQueue;
 
       await service.retryFailedTransaction('cbk_test', { bankAccountNumber: '0123456789', bankCode: '058' });
 
       expect(payoutAccountRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ bankAccountNumber: '0123456789', bankCode: '058' }),
       );
-      expect(provider.sendCashback).toHaveBeenCalledTimes(1);
+      // Retry work stays on the queue.
+      expect(provider.sendCashback).not.toHaveBeenCalled();
+      expect(fakeQueue.add).toHaveBeenCalledWith(
+        'send-cashback',
+        expect.objectContaining({ transactionId: 'cbk_test' }),
+        expect.objectContaining({ attempts: 3 }),
+      );
+      expect(fakeRepo.getRecord().status).toBe(PaymentStatus.Pending);
+    });
+  });
+
+  describe('retryEligibleFailedTransactions (interval auto-retry)', () => {
+    it('queues a retry for retryable FAILED transactions that still have bank details on file', async () => {
+      const retryable = { ...baseTransaction, id: 'cbk_retryable', status: PaymentStatus.Failed, retryable: true };
+      const fakeRepo = createFakeTransactionRepository(retryable);
+      fakeRepo.find.mockResolvedValue([retryable]);
+      const service = await createService(fakeRepo);
+      const fakeQueue = { add: jest.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).queue = fakeQueue;
+
+      const retried = await service.retryEligibleFailedTransactions();
+
+      expect(retried).toBe(1);
+      expect(fakeQueue.add).toHaveBeenCalledTimes(1);
+      expect(provider.sendCashback).not.toHaveBeenCalled();
+    });
+
+    it('skips a candidate with no payout account on file', async () => {
+      const retryable = { ...baseTransaction, id: 'cbk_retryable', status: PaymentStatus.Failed, retryable: true };
+      const fakeRepo = createFakeTransactionRepository(retryable);
+      fakeRepo.find.mockResolvedValue([retryable]);
+      payoutAccountRepository.findOneBy.mockResolvedValue(null);
+      const service = await createService(fakeRepo);
+      const fakeQueue = { add: jest.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).queue = fakeQueue;
+
+      const retried = await service.retryEligibleFailedTransactions();
+
+      expect(retried).toBe(0);
+      expect(fakeQueue.add).not.toHaveBeenCalled();
     });
   });
 });

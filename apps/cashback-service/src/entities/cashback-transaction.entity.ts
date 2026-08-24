@@ -1,7 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryColumn, Unique, UpdateDateColumn } from 'typeorm';
-import { PaymentStatus } from '@bumpa/events-sdk';
+import { CashbackFailureCode, PaymentStatus } from '@bumpa/events-sdk';
 
-/** In-flight status meaning a transaction is claimed and being paid out. */
 export const CashbackProcessingStatus = 'PROCESSING' as const;
 
 export type CashbackTransactionStatus = PaymentStatus | typeof CashbackProcessingStatus;
@@ -38,8 +37,22 @@ export class CashbackTransaction {
   @Column({ nullable: true })
   correlationId?: string;
 
+  // Use null so successful rows do not keep stale failure details.
   @Column({ nullable: true, type: 'text' })
-  failureReason?: string;
+  failureReason?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  failureCode?: CashbackFailureCode | null;
+
+  // Drives the interval auto-retry scanner.
+  @Column({ type: 'boolean', nullable: true })
+  retryable?: boolean | null;
+
+  @Column({ default: 0 })
+  retryCount!: number;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  nextRetryAt?: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

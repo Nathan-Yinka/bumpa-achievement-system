@@ -1,5 +1,5 @@
 import { EventVersion } from './enums';
-import type { DomainEventName, PaymentStatus } from './enums';
+import type { CashbackFailureCode, DomainEventName, PaymentStatus } from './enums';
 
 export interface DomainEvent<TPayload extends object = object> {
   eventId: string;
@@ -43,6 +43,10 @@ export interface CashbackProcessedPayload {
   amountKobo: number;
   providerReference: string;
   status: PaymentStatus.Successful | PaymentStatus.Failed;
+  // Set only when status is Failed.
+  failureCode?: CashbackFailureCode;
+  failureReason?: string;
+  retryable?: boolean;
 }
 
 export type PurchaseCompletedEvent = DomainEvent<PurchaseCompletedPayload>;

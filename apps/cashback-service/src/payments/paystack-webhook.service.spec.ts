@@ -21,6 +21,7 @@ describe('PaystackWebhookService', () => {
     providerReference: 'paystack_ref',
     providerRecipientCode: 'RCP_test',
     correlationId: 'corr_test',
+    retryCount: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
