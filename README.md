@@ -127,6 +127,42 @@ curl -X POST -H "x-api-key: bumpa-local-admin-key" -H "Content-Type: application
   http://localhost:3000/cashbacks/{id}/retry
 ```
 
+## Local Development Tools
+
+`docker-compose.yml` stays prod-safe by default — only the gateway's port is published. For local debugging, `docker-compose.dev.yml` is an overlay that also exposes Postgres, Redis, RabbitMQ, and each microservice directly:
+
+```bash
+npm run docker:dev
+```
+
+This gives you:
+
+- **Postgres** on `localhost:5432` (`bumpa`/`bumpa`) — connect a DB client and inspect `purchase_db`, `loyalty_db`, `cashback_db` directly.
+- **Redis** on `localhost:6379`.
+- **RabbitMQ management UI** at `http://localhost:15672` (`bumpa`/`bumpa`) — the Queues tab shows every queue live, including the `.retry` and `.dlq` queues for each consumer, so you can watch messages move between them or inspect a dead-lettered payload by hand.
+- Each microservice directly: `purchase-service:3001`, `loyalty-service:3002`, `cashback-service:3004`.
+
+### Watching events in real time
+
+With the dev overlay running, tail every domain event as it's published, with its payload, in a readable, color-coded console feed — good for demos or just seeing the purchase → achievement → badge → cashback chain fire in order:
+
+```bash
+npm run watch:events
+```
+
+```
+● PurchaseCompleted.v1  6:04:51 AM
+  eventId       evt_e35674148b4c
+  correlationId corr_ae01832212a0
+  payload
+    { "userId": "usr_watch_demo", "amountKobo": 500000, ... }
+
+● AchievementUnlocked.v1  6:04:51 AM
+  ...
+```
+
+It works by binding a private, auto-delete queue to the shared event exchange with a wildcard routing key — it sees a copy of everything without taking anything away from the real consumers, and RabbitMQ cleans it up the moment you stop the script (`Ctrl+C`). It never shows up in the management UI's queue list under normal use since it only exists while running.
+
 ## Tests
 
 ```bash
@@ -140,13 +176,14 @@ npm run test:e2e:docker
 
 The default provider is `mock`, which lets the full flow run locally without external credentials.
 
-To test Paystack:
+To test Paystack, copy `.env.docker.example` to `.env` and fill in a real `PAYSTACK_SECRET_KEY` (Paystack Dashboard → Settings → API Keys & Webhooks → Test Secret Key):
 
 ```bash
-PAYMENT_PROVIDER=paystack \
-PAYSTACK_SECRET_KEY=sk_test_xxx \
-PAYSTACK_WEBHOOK_SECRET=whsec_xxx \
+cp .env.docker.example .env
+# edit .env: set PAYMENT_PROVIDER=paystack and PAYSTACK_SECRET_KEY=sk_test_...
 docker compose up --build
 ```
+
+`.env` is git-ignored — it's never committed, and Docker Compose loads it automatically with no extra flags needed. `.env.docker.example` lists only the handful of variables Docker Compose actually reads; everything else (DB/RabbitMQ/Redis settings) is intentionally hardcoded in `docker-compose.yml` — see the comment there for why.
 
 If Paystack is selected without a secret key, the provider uses a dry-run path so local e2e tests still complete.
