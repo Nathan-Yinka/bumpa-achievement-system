@@ -382,6 +382,33 @@ Works against any environment reachable at `RABBITMQ_HOST`/`_PORT`/`_USER`/`_PAS
 those env vars at a different stack (staging, etc.) and the same script watches that instead of
 requiring the dev overlay specifically.
 
+### Watching events in the browser
+
+Same live tap on the event bus as `watch:events`, but streamed to a browser tab over
+[SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) instead of printed to
+a terminal — a small, self-contained demo of "here's how you'd build a live event feed for this
+system," and a nicer thing to have on screen for a demo than a terminal.
+
+```bash
+npm run watch:events:web
+# then open http://localhost:4100
+```
+
+`scripts/events-dashboard.ts` is a plain `node:http` server (no framework) that does two things:
+binds one auto-delete queue to `bumpa.events` — exactly like `watch-events.ts` — and, for every
+message it receives, writes it as an SSE frame (`data: <event json>\n\n`) to every currently
+connected browser tab. One shared RabbitMQ subscription fans out to all of them; opening five
+tabs doesn't open five queues on the broker.
+
+`scripts/events-dashboard.html` is the page each tab loads — vanilla JS, `new
+EventSource('/events')`, no build step, no dependencies beyond what the browser already has.
+Each event renders as a color-coded card (same color mapping as the console version) with its
+type, timestamp, `eventId`/`correlationId`, and full payload. `EventSource` reconnects on its
+own if the connection drops — the status dot in the header reflects that.
+
+Configurable via `EVENTS_DASHBOARD_PORT` (default `4100`) and the same `RABBITMQ_*` env vars as
+`watch:events`.
+
 ## Tests
 
 ```bash
