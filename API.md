@@ -129,6 +129,32 @@ Swagger (grouped by tag, with request/response examples for every endpoint):
 http://localhost:3000/docs
 ```
 
+### List Banks
+
+```http
+GET /banks
+GET /banks?search=zenith
+```
+
+Bank name + code pairs, for resolving the `bankCode` a purchase (or a cashback retry) needs
+before it can be paid out. `search` matches case-insensitively against either the bank name or
+its code. Backed by Paystack's live bank list when `PAYSTACK_SECRET_KEY` is configured, otherwise
+a static list of major Nigerian banks (so it still works with `PAYMENT_PROVIDER=mock` in dev).
+
+Response:
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "data": [
+    { "name": "Guaranty Trust Bank", "code": "058" },
+    { "name": "Zenith Bank", "code": "057" }
+  ],
+  "timestamp": "2026-08-24T12:00:00.000Z"
+}
+```
+
 ### Create Purchase
 
 ```http
@@ -160,7 +186,7 @@ Notes:
 - `bankAccountNumber` and `bankCode` are optional for purchase creation. They're required
   before real cashback can be paid out — a badge unlocked for a user with no bank details ends
   up a `FAILED` cashback transaction, classified `MISSING_BANK_DETAILS`, resumable via the
-  retry endpoint below.
+  retry endpoint below. Use `GET /banks` above to resolve the `bankCode` for a given bank.
 - `amountKobo` is in kobo, must be at least `1` and at most `10,000,000,000` (₦100,000,000).
 - `x-idempotency-key`: if supplied, a repeated request with the same key returns the original
   purchase instead of creating a duplicate — safe to retry on timeout.

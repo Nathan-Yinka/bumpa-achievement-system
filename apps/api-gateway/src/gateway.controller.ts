@@ -8,7 +8,7 @@ import { CreateAchievementGroupDto, UpdateAchievementGroupDto } from './dto/achi
 import { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
 import { CreateBadgeConfigDto, UpdateBadgeConfigDto } from './dto/badge-config.dto';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
-import { ListAchievementsQueryDto, ListBadgesQueryDto, ListCashbacksQueryDto } from './dto/list-query.dto';
+import { ListAchievementsQueryDto, ListBadgesQueryDto, ListBanksQueryDto, ListCashbacksQueryDto } from './dto/list-query.dto';
 import { RetryCashbackDto } from './dto/retry-cashback.dto';
 import {
   AchievementGroupKeyParamDto,
@@ -95,6 +95,28 @@ export class GatewayController {
       body: dto,
       correlationId: req.correlationId,
       headers: this.optionalHeader(IDEMPOTENCY_KEY_HEADER, this.getHeader(req, IDEMPOTENCY_KEY_HEADER)),
+    });
+  }
+
+  @Get('banks')
+  @ApiTags('banks')
+  @ApiOperation({
+    summary: 'List supported banks',
+    description:
+      'Bank name + code pairs, searchable, for resolving the bankCode a purchase or cashback retry needs before it can be paid out. ' +
+      'Backed by Paystack\'s bank list when a Paystack secret key is configured, otherwise a static list of major Nigerian banks.',
+  })
+  @ApiWrappedOkResponse('Lists banks by name and code, optionally filtered by search.', [
+    { name: 'Guaranty Trust Bank', code: '058' },
+    { name: 'Zenith Bank', code: '057' },
+  ])
+  async listBanks(@Query() query: ListBanksQueryDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Cashback,
+      method: 'GET',
+      path: '/banks',
+      query,
+      correlationId: req.correlationId,
     });
   }
 

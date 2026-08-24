@@ -96,3 +96,13 @@ export class ListCashbacksQueryDto {
   @IsString()
   search?: string;
 }
+
+export class ListBanksQueryDto {
+  @ApiPropertyOptional({
+    example: 'gtbank',
+    description: 'Case-insensitive match against bank name or code, e.g. "zenith", "gt", or "058".',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
