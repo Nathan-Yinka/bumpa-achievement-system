@@ -1,8 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min, ValidateIf } from 'class-validator';
 
-// ₦100,000,000 (100,000,000 * 100 kobo) — a generous ceiling for a single purchase that still
-// rejects obviously malformed/overflowing input (e.g. typos adding extra digits) before it hits the DB.
+// High but bounded purchase amount in kobo.
 const MAX_AMOUNT_KOBO = 100_000_000_00;
 
 export class CreatePurchaseDto {
@@ -11,22 +10,22 @@ export class CreatePurchaseDto {
   @IsNotEmpty()
   userId!: string;
 
-  @ApiProperty({ example: 'customer@getbumpa.com' })
+  @ApiProperty({ example: 'oludarenathaniel@gmail.com' })
   @IsEmail()
   email!: string;
 
-  @ApiProperty({ example: 'Amina Bello' })
+  @ApiProperty({ example: 'Nathaniel Adeyinka Oludare' })
   @IsString()
   name!: string;
 
-  @ApiProperty({ example: '0123456789', required: false })
+  @ApiProperty({ example: '2152454812', required: false })
   @IsOptional()
   @IsString()
   @ValidateIf((dto) => dto.bankAccountNumber !== undefined)
   @Matches(/^\d{10}$/, { message: 'bankAccountNumber must be a 10-digit NUBAN account number' })
   bankAccountNumber?: string;
 
-  @ApiProperty({ example: '058', required: false })
+  @ApiProperty({ example: '033', required: false })
   @IsOptional()
   @IsString()
   @ValidateIf((dto) => dto.bankCode !== undefined)

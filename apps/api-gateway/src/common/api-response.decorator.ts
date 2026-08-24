@@ -1,5 +1,6 @@
 import { applyDecorators } from '@nestjs/common';
 import {
+  ApiAcceptedResponse,
   ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiExtraModels,
@@ -9,27 +10,28 @@ import {
 } from '@nestjs/swagger';
 import { ApiErrorEnvelopeDto, ApiSuccessEnvelopeDto } from './api-response.dto';
 
-function wrappedDataSchema(): object {
+function wrappedDataSchema(example?: unknown): object {
   return {
     allOf: [
       { $ref: getSchemaPath(ApiSuccessEnvelopeDto) },
       {
         properties: {
-          data: {
-            description: 'Wrapped endpoint response data',
-          },
+          data:
+            example !== undefined
+              ? { example }
+              : { description: 'Wrapped endpoint response data' },
         },
       },
     ],
   };
 }
 
-export function ApiWrappedOkResponse(description: string): MethodDecorator {
+export function ApiWrappedOkResponse(description: string, example?: unknown): MethodDecorator {
   return applyDecorators(
     ApiExtraModels(ApiSuccessEnvelopeDto, ApiErrorEnvelopeDto),
     ApiOkResponse({
       description,
-      schema: wrappedDataSchema(),
+      schema: wrappedDataSchema(example),
     }),
     ApiBadRequestResponse({
       description: 'Validation or request error',
@@ -42,12 +44,30 @@ export function ApiWrappedOkResponse(description: string): MethodDecorator {
   );
 }
 
-export function ApiWrappedCreatedResponse(description: string): MethodDecorator {
+export function ApiWrappedAcceptedResponse(description: string, example?: unknown): MethodDecorator {
+  return applyDecorators(
+    ApiExtraModels(ApiSuccessEnvelopeDto, ApiErrorEnvelopeDto),
+    ApiAcceptedResponse({
+      description,
+      schema: wrappedDataSchema(example),
+    }),
+    ApiBadRequestResponse({
+      description: 'Validation or request error',
+      schema: { $ref: getSchemaPath(ApiErrorEnvelopeDto) },
+    }),
+    ApiInternalServerErrorResponse({
+      description: 'Unexpected server error',
+      schema: { $ref: getSchemaPath(ApiErrorEnvelopeDto) },
+    }),
+  );
+}
+
+export function ApiWrappedCreatedResponse(description: string, example?: unknown): MethodDecorator {
   return applyDecorators(
     ApiExtraModels(ApiSuccessEnvelopeDto, ApiErrorEnvelopeDto),
     ApiCreatedResponse({
       description,
-      schema: wrappedDataSchema(),
+      schema: wrappedDataSchema(example),
     }),
     ApiBadRequestResponse({
       description: 'Validation or request error',

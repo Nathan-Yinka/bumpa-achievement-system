@@ -159,6 +159,17 @@ describe('Bumpa achievement system e2e', () => {
     await request(gatewayUrl).get('/admin/achievements').set('x-api-key', 'wrong-key').expect(401);
   });
 
+  it('routes Paystack webhooks through the gateway to cashback signature verification', async () => {
+    const response = await request(gatewayUrl)
+      .post('/webhooks/paystack')
+      .send({ event: 'transfer.success', data: { reference: 'ref_unsigned' } })
+      .expect(401);
+
+    const body = response.body as ErrorEnvelope;
+    expect(body.success).toBe(false);
+    expect(body.message).toEqual(expect.stringContaining('signature'));
+  });
+
   it('returns a 404 for an unknown route', async () => {
     await request(gatewayUrl).get('/this-route-does-not-exist').expect(404);
   });
@@ -324,7 +335,7 @@ describe('Bumpa achievement system e2e', () => {
       .post(`/cashbacks/${failedTransaction.id}/retry`)
       .set('x-api-key', apiKey)
       .send({ bankAccountNumber: '0123456789', bankCode: '058' })
-      .expect(200);
+      .expect(202);
 
     await waitFor(
       async () => getAdminEnvelope<Paginated<CashbackTransactionResponse>>(`/cashbacks?userId=${userId}&status=SUCCESSFUL`),

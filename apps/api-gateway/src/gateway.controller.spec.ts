@@ -1,21 +1,29 @@
 import type { Request } from 'express';
 import { GatewayController } from './gateway.controller';
-import type { MicroserviceHttpClient } from './http/microservice-http-client.service';
+import { MicroserviceHttpClient } from './http/microservice-http-client.service';
 import { MicroserviceName } from './http/microservice.enum';
+import { ServiceRouteResolver } from './http/service-route.resolver';
 
-type CorrelatedRequest = Request & { correlationId: string };
+interface CorrelatedRequest {
+  correlationId: string;
+  headers: Request['headers'];
+}
+
+type RawWebhookRequest = CorrelatedRequest & { rawBody?: Buffer };
 
 function requestWith(correlationId: string): CorrelatedRequest {
-  return { correlationId } as CorrelatedRequest;
+  return { correlationId, headers: {} };
 }
 
 describe('GatewayController correlation id forwarding', () => {
-  let forward: jest.Mock;
+  let forward: jest.SpiedFunction<MicroserviceHttpClient['forward']>;
+  let forwardRaw: jest.SpiedFunction<MicroserviceHttpClient['forwardRaw']>;
   let controller: GatewayController;
 
   beforeEach(() => {
-    forward = jest.fn().mockResolvedValue({ ok: true });
-    const httpClient = { forward } as unknown as MicroserviceHttpClient;
+    const httpClient = new MicroserviceHttpClient(new ServiceRouteResolver());
+    forward = jest.spyOn(httpClient, 'forward').mockResolvedValue({ ok: true });
+    forwardRaw = jest.spyOn(httpClient, 'forwardRaw').mockResolvedValue({ received: true });
     controller = new GatewayController(httpClient);
   });
 
@@ -75,5 +83,29 @@ describe('GatewayController correlation id forwarding', () => {
     await controller.listCashbacks({}, requestWith('corr_cashbacks'));
 
     expect(forward).toHaveBeenCalledWith(expect.objectContaining({ correlationId: 'corr_cashbacks' }));
+  });
+
+  it('forwards Paystack webhooks as raw signed bodies to the cashback service', async () => {
+    const rawBody = Buffer.from('{"event":"transfer.success","data":{"reference":"ref_1"}}');
+    const req = {
+      correlationId: 'corr_paystack',
+      rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-paystack-signature': 'paystack_signature',
+      },
+    } satisfies RawWebhookRequest;
+
+    await controller.handlePaystackWebhook(req);
+
+    expect(forwardRaw).toHaveBeenCalledWith({
+      service: MicroserviceName.Cashback,
+      method: 'POST',
+      path: '/webhooks/paystack',
+      body: rawBody,
+      contentType: 'application/json',
+      headers: { 'x-paystack-signature': 'paystack_signature' },
+      correlationId: 'corr_paystack',
+    });
   });
 });

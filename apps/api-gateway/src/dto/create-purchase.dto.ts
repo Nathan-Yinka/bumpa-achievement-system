@@ -6,20 +6,20 @@ export class CreatePurchaseDto {
   @IsString()
   userId!: string;
 
-  @ApiProperty({ example: 'customer@getbumpa.com' })
+  @ApiProperty({ example: 'oludarenathaniel@gmail.com' })
   @IsEmail()
   email!: string;
 
-  @ApiProperty({ example: 'Amina Bello' })
+  @ApiProperty({ example: 'Nathaniel Adeyinka Oludare' })
   @IsString()
   name!: string;
 
-  @ApiProperty({ example: '0123456789', required: false })
+  @ApiProperty({ example: '2152454812', required: false })
   @IsOptional()
   @IsString()
   bankAccountNumber?: string;
 
-  @ApiProperty({ example: '058', required: false })
+  @ApiProperty({ example: '033', required: false })
   @IsOptional()
   @IsString()
   bankCode?: string;

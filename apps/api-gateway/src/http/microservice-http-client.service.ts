@@ -17,6 +17,16 @@ interface ForwardRequest {
   correlationId?: string;
 }
 
+interface ForwardRawRequest {
+  service: MicroserviceName;
+  method: Method;
+  path: string;
+  body: Buffer;
+  contentType?: string;
+  headers?: Record<string, string>;
+  correlationId?: string;
+}
+
 @Injectable()
 export class MicroserviceHttpClient {
   private readonly logger = new Logger(MicroserviceHttpClient.name);
@@ -28,7 +38,6 @@ export class MicroserviceHttpClient {
     this.client = axios.create({ timeout: getNumberEnv(EnvKey.MicroserviceHttpTimeoutMs, 5000) });
   }
 
-  /** Forwards gateway traffic while preserving correlation IDs and downstream status codes. */
   async forward<TResponse extends JsonValue = JsonValue>(request: ForwardRequest): Promise<TResponse> {
     const url = this.routeResolver.resolve(request.service, request.path);
 
@@ -57,6 +66,30 @@ export class MicroserviceHttpClient {
 
         await this.delay(this.retryDelayMs * (attempt + 1));
       }
+    }
+  }
+
+  async forwardRaw<TResponse extends JsonValue = JsonValue>(request: ForwardRawRequest): Promise<TResponse> {
+    const url = this.routeResolver.resolve(request.service, request.path);
+    const startedAt = Date.now();
+
+    try {
+      const response = await this.client.request<TResponse>({
+        url,
+        method: request.method,
+        data: request.body,
+        headers: {
+          'content-type': request.contentType ?? 'application/json',
+          ...(request.correlationId ? { [CORRELATION_ID_HEADER]: request.correlationId } : {}),
+          ...request.headers,
+        },
+      });
+      this.logger.log(`${request.method.toUpperCase()} ${url} -> ${response.status} ${Date.now() - startedAt}ms`);
+      return response.data;
+    } catch (error) {
+      const caughtError = error instanceof Error ? error : new Error('Downstream service request failed');
+      this.logFailure(request.method, url, startedAt, 0, caughtError, false);
+      throw this.toHttpException(caughtError);
     }
   }
 
