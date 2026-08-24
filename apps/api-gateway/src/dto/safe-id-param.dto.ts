@@ -1,7 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Matches } from 'class-validator';
 
-/** Restricts a path param to a safe identifier charset before it's used in a downstream URL. */
 const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 export class UserIdParamDto {

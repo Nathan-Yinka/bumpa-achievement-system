@@ -1,7 +1,6 @@
 import { TableIndex } from 'typeorm';
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-/** Indexes achievement_configs by (groupKey, sortOrder) and badge_configs by sortOrder. */
 export class AddAchievementBadgeIndexes2026082300060 implements MigrationInterface {
   name = 'AddAchievementBadgeIndexes2026082300060';
 

@@ -8,13 +8,13 @@ import type { BrokerModuleOptions, BrokerSubscriptionOptions } from './broker.ty
 const INITIAL_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
-// Escalating-backoff retry via a RabbitMQ retry queue (not an in-process timer), so retry state
-// survives a process crash or reconnect: start at 1s, double each attempt, cap at 30s, give up
-// and dead-letter permanently after 5 attempts.
+// RabbitMQ retry queue keeps retry state outside the process.
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BASE_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30000;
 const RETRY_COUNT_HEADER = 'x-bumpa-retry-count';
+
+type StoredBrokerSubscription = BrokerSubscriptionOptions<DomainEvent>;
 
 @Injectable()
 export class BrokerService implements OnModuleInit, OnModuleDestroy {
@@ -22,7 +22,7 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
   private connection?: amqp.ChannelModel;
   private channel?: amqp.ConfirmChannel;
   // Subscriptions registered via subscribe(), replayed after a reconnect.
-  private readonly subscriptions: BrokerSubscriptionOptions<any>[] = [];
+  private readonly subscriptions: StoredBrokerSubscription[] = [];
   private shuttingDown = false;
   private reconnecting = false;
   private reconnectAttempt = 0;
@@ -72,11 +72,19 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async subscribe<TEvent extends DomainEvent>(options: BrokerSubscriptionOptions<TEvent>): Promise<void> {
-    this.subscriptions.push(options as BrokerSubscriptionOptions<any>);
+    this.subscriptions.push(this.toStoredSubscription(options));
     await this.bindAndConsume(options);
   }
 
-  /** Declares a subscription's queues and starts consuming. Used on connect and on reconnect. */
+  private toStoredSubscription<TEvent extends DomainEvent>(
+    options: BrokerSubscriptionOptions<TEvent>,
+  ): StoredBrokerSubscription {
+    return {
+      ...options,
+      handler: (event: DomainEvent) => options.handler(event as TEvent),
+    };
+  }
+
   private async bindAndConsume<TEvent extends DomainEvent>(
     options: BrokerSubscriptionOptions<TEvent>,
   ): Promise<void> {
@@ -84,8 +92,7 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
     await channel.assertQueue(`${options.queue}.dlq`, { durable: true });
     await channel.bindQueue(`${options.queue}.dlq`, BrokerExchange.DeadLetter, options.routingKey);
 
-    // Holds a failed message for an escalating delay, then dead-letters it straight back into
-    // the original queue (via the default exchange, routing by queue name) for redelivery.
+    // Retry queue delays failed messages before redelivery.
     await channel.assertQueue(`${options.queue}.retry`, {
       durable: true,
       arguments: {
@@ -121,7 +128,7 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
     try {
       event = JSON.parse(message.content.toString('utf8')) as TEvent;
     } catch (error) {
-      // Malformed payload, retrying won't help — dead-letter it now.
+      // Malformed payloads cannot be retried safely.
       this.logger.error(
         'Failed to parse message payload, dead-lettering',
         error instanceof Error ? error.stack : String(error),
@@ -159,7 +166,6 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Republishes a message to the retry queue with an escalating TTL. Returns whether it was scheduled. */
   private scheduleRedelivery(
     queue: string,
     message: amqp.ConsumeMessage,
@@ -203,7 +209,6 @@ export class BrokerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Connects to RabbitMQ, declares the shared exchanges, and re-registers existing subscriptions. */
   private async connectAndSetup(): Promise<void> {
     const connection = await amqp.connect(this.options.connection);
     const channel = await connection.createConfirmChannel();

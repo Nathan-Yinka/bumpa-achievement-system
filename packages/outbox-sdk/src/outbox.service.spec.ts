@@ -15,12 +15,7 @@ function createRecord(overrides: Partial<OutboxRecord> = {}): OutboxRecord {
   } as OutboxRecord;
 }
 
-/**
- * A tiny fake TypeORM repository that models the atomic "claim" semantics we
- * depend on: `createQueryBuilder().update().set(...).where(...).andWhere(...)
- * .execute()` only reports rows affected when the row's current status still
- * matches the WHERE clause (i.e. it hasn't already been claimed).
- */
+// Fake repository with the same conditional claim behavior we rely on.
 function createFakeRepository(initial: OutboxRecord[]) {
   const rows = new Map<string, OutboxRecord>(initial.map((row) => [row.id, { ...row }]));
 
@@ -40,44 +35,13 @@ function createFakeRepository(initial: OutboxRecord[]) {
       rows.set(event.id, { ...event });
       return event;
     }),
-    createQueryBuilder: jest.fn(() => {
-      let claimId: string | undefined;
-      let requiredStatus: OutboxStatus | undefined;
-      let nextStatus: OutboxStatus | undefined;
-
-      interface FakeUpdateBuilder {
-        update: () => FakeUpdateBuilder;
-        set: (partial: { status: OutboxStatus }) => FakeUpdateBuilder;
-        where: (clause: string, params: { id: string }) => FakeUpdateBuilder;
-        andWhere: (clause: string, params: { pending: OutboxStatus }) => FakeUpdateBuilder;
-        execute: () => Promise<{ affected: number }>;
+    update: jest.fn(async (where: { id: string; status: OutboxStatus }, partial: { status: OutboxStatus }) => {
+      const row = rows.get(where.id);
+      if (row && row.status === where.status) {
+        rows.set(row.id, { ...row, status: partial.status });
+        return { affected: 1 };
       }
-
-      const builder: FakeUpdateBuilder = {
-        update: jest.fn((): FakeUpdateBuilder => builder),
-        set: jest.fn((partial: { status: OutboxStatus }): FakeUpdateBuilder => {
-          nextStatus = partial.status;
-          return builder;
-        }),
-        where: jest.fn((_clause: string, params: { id: string }): FakeUpdateBuilder => {
-          claimId = params.id;
-          return builder;
-        }),
-        andWhere: jest.fn((_clause: string, params: { pending: OutboxStatus }): FakeUpdateBuilder => {
-          requiredStatus = params.pending;
-          return builder;
-        }),
-        execute: jest.fn(async () => {
-          const row = claimId ? rows.get(claimId) : undefined;
-          if (row && requiredStatus !== undefined && row.status === requiredStatus && nextStatus !== undefined) {
-            rows.set(row.id, { ...row, status: nextStatus });
-            return { affected: 1 };
-          }
-          return { affected: 0 };
-        }),
-      };
-
-      return builder;
+      return { affected: 0 };
     }),
   };
 

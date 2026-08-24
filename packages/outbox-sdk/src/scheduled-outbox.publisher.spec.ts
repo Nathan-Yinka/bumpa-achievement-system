@@ -36,7 +36,7 @@ class FakeRedis {
       return 1;
     }
 
-    // PEXPIRE branch (renewal) — value unchanged, TTL renewal is a no-op for this fake.
+    // PEXPIRE branch; TTL renewal is a no-op for this fake.
     return 1;
   }
 
@@ -129,12 +129,11 @@ describe('ScheduledOutboxPublisher', () => {
     const redis = currentRedis();
     const evalCallsBefore = redis.evalCalls.length;
 
-    // Advance past several heartbeat intervals (lockTtlMs / 2) while the batch is
-    // still "running" — the lock must be renewed, not left to expire.
+    // Advance past several heartbeat intervals.
     await jest.advanceTimersByTimeAsync(lockTtlMs * 3);
 
     expect(redis.evalCalls.length).toBeGreaterThan(evalCallsBefore);
-    // The lock key must still be present — a renewal happened, it was not left to expire.
+    // The heartbeat keeps the lock present.
     expect(redis.store.has('outbox:test-lock')).toBe(true);
 
     resolveBatch();

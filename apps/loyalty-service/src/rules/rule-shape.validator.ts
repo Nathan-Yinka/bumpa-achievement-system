@@ -1,7 +1,6 @@
 import { registerDecorator, type ValidationOptions } from 'class-validator';
 import type { AchievementRule } from './rule.types';
 
-/** Checks that a value matches one of the supported achievement rule shapes: COUNT, SUM, COMBINATION, or ACHIEVEMENT_SET. */
 export function isValidAchievementRuleShape(value: unknown): value is AchievementRule {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -41,7 +40,6 @@ export function isValidAchievementRuleShape(value: unknown): value is Achievemen
   }
 }
 
-/** class-validator decorator that validates a `rule` field against the supported achievement rule shapes. */
 export function ValidateRuleShape(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string): void {
     registerDecorator({

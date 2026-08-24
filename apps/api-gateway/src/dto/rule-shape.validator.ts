@@ -1,11 +1,5 @@
 import { registerDecorator, type ValidationArguments, type ValidationOptions } from 'class-validator';
 
-/**
- * Validates that a value is a non-null, non-array object with a string `type` field.
- * The deep rule-shape validation (allowed operators, required per-type fields, etc.)
- * lives in loyalty-service — this only stops garbage/wrong-typed top-level payloads
- * from reaching it through the gateway.
- */
 export function IsRuleShape(validationOptions?: ValidationOptions): PropertyDecorator {
   return (object: object, propertyName: string | symbol) => {
     registerDecorator({

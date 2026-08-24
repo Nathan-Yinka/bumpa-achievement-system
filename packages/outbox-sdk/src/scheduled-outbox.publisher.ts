@@ -52,7 +52,6 @@ export class ScheduledOutboxPublisher implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Keeps the Redis lock alive for as long as the batch is publishing. */
   private startLockHeartbeat(lockValue: string): NodeJS.Timeout {
     return setInterval(() => {
       void this.extendLock(lockValue).catch(() => {

@@ -19,7 +19,6 @@ export class OutboxService implements OnModuleInit {
     this.repository = this.dataSource.getRepository(this.options.entity);
   }
 
-  /** Attempts to publish a freshly committed outbox row without waiting for the retry scanner. */
   async publishById(id: string): Promise<boolean> {
     const event = await this.repository.findOne({ where: { id } as FindOptionsWhere<OutboxRecord> });
     if (!event || event.status === OutboxStatus.Published || event.attempts >= this.options.maxAttempts) {
@@ -42,7 +41,6 @@ export class OutboxService implements OnModuleInit {
     }
   }
 
-  /** Retries pending rows left behind by transient broker failures or process crashes. */
   async publishPendingBatch(): Promise<void> {
     const events = await this.repository.find({
       where: { status: OutboxStatus.Pending } as FindOptionsWhere<OutboxRecord>,
@@ -62,17 +60,13 @@ export class OutboxService implements OnModuleInit {
     }
   }
 
-  /** Flips a row from Pending to Publishing in one update. Returns whether this call won the claim. */
   private async claimForPublishing(id: string): Promise<boolean> {
-    const result = await this.repository
-      .createQueryBuilder()
-      .update()
-      // TypeORM's QueryDeepPartialEntity type doesn't fit OutboxRecord's index signature here.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .set({ status: OutboxStatus.Publishing } as any)
-      .where('id = :id', { id })
-      .andWhere('status = :pending', { pending: OutboxStatus.Pending })
-      .execute();
+    const update = { status: OutboxStatus.Publishing } as { status: OutboxStatus } &
+      Parameters<Repository<OutboxRecord>['update']>[1];
+    const result = await this.repository.update(
+      { id, status: OutboxStatus.Pending } as FindOptionsWhere<OutboxRecord>,
+      update,
+    );
 
     return (result.affected ?? 0) > 0;
   }

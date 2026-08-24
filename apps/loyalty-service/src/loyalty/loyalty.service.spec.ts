@@ -35,12 +35,7 @@ function buildEvent(): PurchaseCompletedEvent {
   };
 }
 
-/**
- * A "good" achievement config (COUNT rule that unlocks on the very first purchase) alongside a
- * "broken" one whose rule shape is malformed enough that RuleEngineService.evaluate() throws.
- * This mirrors the live-reproduced bug: an admin-saved malformed rule must not crash the whole
- * purchase transaction or block other, valid achievements from unlocking.
- */
+// One valid config plus one malformed config for resilience coverage.
 function buildConfigs(): AchievementConfig[] {
   const good = {
     id: 'ach_first_purchase',
@@ -56,7 +51,7 @@ function buildConfigs(): AchievementConfig[] {
     name: 'Broken Achievement',
     groupKey: 'broken',
     sortOrder: 1,
-    // Missing `rules` on a COMBINATION-shaped rule — throws inside RuleEngineService.evaluate().
+    // Missing `rules` makes this config invalid.
     rule: { type: 'COMBINATION', operator: 'AND' } as unknown as AchievementConfig['rule'],
     active: true,
   } as AchievementConfig;

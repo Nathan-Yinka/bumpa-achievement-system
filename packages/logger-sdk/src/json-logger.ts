@@ -20,7 +20,6 @@ export class JsonLogger implements LoggerService {
     this.write('debug', message, this.normalizeContext(context));
   }
 
-  /** Nest passes a plain string as context (the class name); this SDK expects a LogContext object. Handle both. */
   private normalizeContext(context?: string | LogContext): LogContext {
     if (context === undefined) {
       return { service: this.service };
