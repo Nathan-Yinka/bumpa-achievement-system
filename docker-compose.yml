@@ -179,6 +179,25 @@ services:
       redis:
         condition: service_healthy
 
+  events-dashboard:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/events-dashboard.Dockerfile
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: bumpa
+      RABBITMQ_PASSWORD: bumpa
+      EVENTS_DASHBOARD_PORT: 4100
+    ports:
+      - "${EVENTS_DASHBOARD_HOST_PORT:-4100}:4100"
+    networks:
+      - edge
+      - backend
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   postgres_data:
 

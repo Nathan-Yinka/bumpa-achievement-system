@@ -1,0 +1,68 @@
+name: Deploy
+
+# Ships develop/main to the VPS: the runner checks out the repo (works even while
+# it's private, since actions/checkout already has repo access), rsyncs the tree
+# over SSH, then runs docker compose on the box. The VPS itself never needs its
+# own GitHub credentials.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   VPS_HOST     e.g. 72.62.192.213
+#   VPS_USER     e.g. root
+#   VPS_SSH_KEY  private key with access to VPS_USER@VPS_HOST (full contents)
+#   VPS_APP_DIR  e.g. /opt/bumpa-achievement-system
+#
+# The gateway's published host port comes from API_GATEWAY_HOST_PORT in the
+# server-side .env at VPS_APP_DIR (not committed to git, not touched by this
+# workflow) — check what's already listening on the host before changing it,
+# this box runs several other unrelated apps side by side.
+#
+# This workflow only ever touches VPS_APP_DIR, so it can't collide with other
+# apps already running on a shared host.
+
+# Deploys only after CI (lint/build/unit/e2e) has actually passed on develop or
+# main — this listens for the CI workflow to finish rather than racing it on its
+# own push trigger. workflow_dispatch is kept for a manual re-deploy with no code
+# change (e.g. after fixing something by hand on the box).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop, main]
+  workflow_dispatch: {}
+
+# A newer deploy of the same branch supersedes one still running rather than
+# queuing behind it — so the box always ends up on the latest push, never on an
+# older one that happened to still be mid-flight.
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Add VPS host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Rsync source to VPS
+        run: |
+          rsync -az --delete \
+            --exclude '.git' --exclude 'node_modules' --exclude '**/dist' \
+            ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_APP_DIR }}/"
+
+      - name: docker compose up --build on VPS
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "cd '${{ secrets.VPS_APP_DIR }}' && docker compose -p bumpa -f docker-compose.yml up -d --build --remove-orphans && docker image prune -f"
