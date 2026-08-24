@@ -10,6 +10,7 @@ import { Purchase } from './entities/purchase.entity';
 import { User } from './entities/user.entity';
 import { HealthController } from './health.controller';
 import { CreatePurchaseSchema2026082300010 } from './migrations/2026082300010-CreatePurchaseSchema';
+import { AddPurchaseIdempotencyKey2026082300020 } from './migrations/2026082300020-AddPurchaseIdempotencyKey';
 import { PurchaseModule } from './purchases/purchase.module';
 
 @Module({
@@ -18,7 +19,7 @@ import { PurchaseModule } from './purchases/purchase.module';
     TypeOrmModule.forRoot({
       ...getPostgresConfig(EnvKey.PurchaseDatabaseName),
       entities: [User, Purchase, OutboxEvent],
-      migrations: [CreatePurchaseSchema2026082300010],
+      migrations: [CreatePurchaseSchema2026082300010, AddPurchaseIdempotencyKey2026082300020],
       migrationsRun: true,
       synchronize: false,
     }),

@@ -12,6 +12,9 @@ export class Purchase {
   @Column('int')
   amountKobo!: number;
 
+  @Column({ nullable: true, unique: true })
+  idempotencyKey?: string;
+
   @ManyToOne(() => User, (user) => user.purchases, { onDelete: 'CASCADE' })
   user!: User;
 

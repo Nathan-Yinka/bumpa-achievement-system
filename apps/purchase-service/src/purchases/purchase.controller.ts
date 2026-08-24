@@ -1,8 +1,9 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Headers, Post, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { CORRELATION_ID_HEADER } from '@bumpa/logger-sdk';
+import type { Request } from 'express';
 import { createReadableId, EntityIdPrefix } from '@bumpa/events-sdk';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
+import { IDEMPOTENCY_KEY_HEADER } from './idempotency.constants';
 import { PurchaseService } from './purchase.service';
 
 @ApiTags('purchases')
@@ -13,8 +14,11 @@ export class PurchaseController {
   @Post()
   create(
     @Body() dto: CreatePurchaseDto,
-    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+    @Req() req: Request & { correlationId?: string },
+    @Headers(IDEMPOTENCY_KEY_HEADER) idempotencyKey?: string,
   ): Promise<{ purchaseId: string }> {
-    return this.purchaseService.createPurchase(dto, correlationId || createReadableId(EntityIdPrefix.Event));
+    // req.correlationId is set by CorrelationIdMiddleware; the fallback only covers a missing middleware.
+    const correlationId = req.correlationId || createReadableId(EntityIdPrefix.Event);
+    return this.purchaseService.createPurchase(dto, correlationId, idempotencyKey);
   }
 }
