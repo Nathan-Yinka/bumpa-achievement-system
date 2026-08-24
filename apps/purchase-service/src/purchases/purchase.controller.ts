@@ -17,7 +17,7 @@ export class PurchaseController {
     @Req() req: Request & { correlationId?: string },
     @Headers(IDEMPOTENCY_KEY_HEADER) idempotencyKey?: string,
   ): Promise<{ purchaseId: string }> {
-    // req.correlationId is set by CorrelationIdMiddleware; the fallback only covers a missing middleware.
+    // Fallback covers a missing correlation middleware.
     const correlationId = req.correlationId || createReadableId(EntityIdPrefix.Event);
     return this.purchaseService.createPurchase(dto, correlationId, idempotencyKey);
   }

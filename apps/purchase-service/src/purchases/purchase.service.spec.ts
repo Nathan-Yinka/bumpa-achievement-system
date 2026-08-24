@@ -91,13 +91,16 @@ describe('PurchaseService', () => {
     });
 
     it('falls back to the existing purchase when a concurrent retry loses the pre-check race and hits the unique constraint', async () => {
-      // Simulate a losing concurrent transaction: the pre-check found nothing, but by the time this
-      // transaction commits, another request already inserted the row for this idempotency key.
+      // Simulate a retry losing the idempotency race.
       const winningPurchase = { id: 'pur_winner', idempotencyKey: 'idem_race' };
       purchases.push(winningPurchase);
 
       dataSource.transaction.mockImplementationOnce(async () => {
-        throw new QueryFailedError('insert', [], { code: '23505', message: 'duplicate key' } as never);
+        throw new QueryFailedError(
+          'insert',
+          [],
+          { code: '23505', message: 'duplicate key value violates unique constraint "UQ_purchases_idempotencyKey"' } as never,
+        );
       });
 
       const result = await service.createPurchase(dto, 'corr_1', 'idem_race');

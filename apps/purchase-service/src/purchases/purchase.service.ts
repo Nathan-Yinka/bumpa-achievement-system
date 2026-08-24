@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
   createDomainEvent,
@@ -15,11 +15,14 @@ import { Purchase } from '../entities/purchase.entity';
 import { User } from '../entities/user.entity';
 import type { CreatePurchaseDto } from './dto/create-purchase.dto';
 
-// Postgres error code for a unique_violation (e.g. our UQ_purchases_idempotencyKey constraint).
+// Postgres unique_violation.
 const POSTGRES_UNIQUE_VIOLATION = '23505';
+const IDEMPOTENCY_KEY_UNIQUE_CONSTRAINT = 'UQ_purchases_idempotencyKey';
 
 @Injectable()
 export class PurchaseService {
+  private readonly logger = new Logger(PurchaseService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly outboxService: OutboxService,
@@ -33,6 +36,7 @@ export class PurchaseService {
     if (idempotencyKey) {
       const existing = await this.findByIdempotencyKey(idempotencyKey);
       if (existing) {
+        this.logger.log(`Idempotency key ${idempotencyKey} already used; returning existing purchase ${existing.id}`);
         return { purchaseId: existing.id };
       }
     }
@@ -70,17 +74,20 @@ export class PurchaseService {
         outboxEventIds.push(event.eventId);
       });
     } catch (error) {
-      // A concurrent request with the same idempotency key can hit the unique constraint
-      // directly instead of the pre-check above; treat it the same way.
-      if (idempotencyKey && this.isUniqueViolation(error)) {
+      // Handles the duplicate path when a concurrent request wins the race.
+      if (idempotencyKey && this.isUniqueViolation(error, IDEMPOTENCY_KEY_UNIQUE_CONSTRAINT)) {
         const existing = await this.findByIdempotencyKey(idempotencyKey);
         if (existing) {
+          this.logger.log(`Idempotency key ${idempotencyKey} raced to a duplicate; returning existing purchase ${existing.id}`);
           return { purchaseId: existing.id };
         }
       }
+
+      this.logger.error(`Failed to create purchase for user ${dto.userId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
 
+    this.logger.log(`Created purchase ${purchaseId} for user ${dto.userId} (${dto.amountKobo} kobo)`);
     await this.outboxService.publishMany(outboxEventIds);
 
     return { purchaseId };
@@ -90,8 +97,17 @@ export class PurchaseService {
     return this.dataSource.getRepository(Purchase).findOne({ where: { idempotencyKey } });
   }
 
-  private isUniqueViolation(error: unknown): boolean {
-    return error instanceof QueryFailedError && (error as unknown as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION;
+  private isUniqueViolation(error: unknown, constraintName?: string): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const isUniqueViolation = (error as unknown as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION;
+    if (!isUniqueViolation || !constraintName) {
+      return isUniqueViolation;
+    }
+
+    return error.message.includes(`"${constraintName}"`);
   }
 
   private buildUserSnapshot(dto: CreatePurchaseDto): UserSnapshot {
