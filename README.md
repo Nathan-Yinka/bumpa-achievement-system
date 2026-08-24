@@ -2,6 +2,16 @@
 
 Event-driven NestJS backend for purchase achievements, badges, and automated cashback.
 
+## Live Demo
+
+| | |
+|---|---|
+| **API** | [http://72.62.192.213:8090](http://72.62.192.213:8090) — the API gateway; Swagger docs at [`/docs`](http://72.62.192.213:8090/docs), health at [`/health`](http://72.62.192.213:8090/health). Every request from purchase creation through achievement/badge unlocks and cashback payout goes through here. |
+| **Live event stream** | [http://72.62.192.213:4100](http://72.62.192.213:4100) — a browser dashboard tapping the RabbitMQ event bus over SSE in real time. Open it, then hit the API (e.g. create a purchase), and watch `PurchaseCompleted.v1` → `AchievementUnlocked.v1` / `BadgeUnlocked.v1` → `CashbackProcessed.v1` land as they're published — no polling, no terminal needed. |
+
+Deployed via GitHub Actions on every push to `main`/`deploy` that passes CI (see `.github/workflows/`).
+Runs with `PAYMENT_PROVIDER=mock`, so cashback payouts are simulated rather than hitting real Paystack.
+
 **Full docs map:**
 [`API.md`](API.md) (every endpoint/payload) ·
 [`apps/api-gateway/README.md`](apps/api-gateway/README.md) ·
