@@ -4,6 +4,7 @@ import { BrokerService } from '@bumpa/broker-sdk';
 import { OutboxService } from '@bumpa/outbox-sdk';
 import { LoyaltyConfigSeederService } from '../config/loyalty-config-seeder.service';
 import { AchievementConfig } from '../entities/achievement-config.entity';
+import { AchievementGroup } from '../entities/achievement-group.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
 import { UserAchievement } from '../entities/user-achievement.entity';
 import { UserBadge } from '../entities/user-badge.entity';
@@ -24,6 +25,7 @@ describe('LoyaltyModule wiring', () => {
         PurchaseCompletedConsumer,
         { provide: getDataSourceToken(), useValue: { getRepository: jest.fn(() => repository), transaction: jest.fn() } },
         { provide: getRepositoryToken(AchievementConfig), useValue: repository },
+        { provide: getRepositoryToken(AchievementGroup), useValue: repository },
         { provide: getRepositoryToken(BadgeConfig), useValue: repository },
         { provide: getRepositoryToken(UserAchievement), useValue: repository },
         { provide: getRepositoryToken(UserBadge), useValue: repository },

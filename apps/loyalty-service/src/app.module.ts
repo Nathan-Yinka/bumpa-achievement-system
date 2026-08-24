@@ -6,6 +6,7 @@ import { ServiceName } from '@bumpa/events-sdk';
 import { CorrelationIdMiddleware, RequestLoggingMiddleware } from '@bumpa/logger-sdk';
 import { EnvKey, getPostgresConfig, getRabbitMqConfig, validateConfig } from './config/env';
 import { AchievementConfig } from './entities/achievement-config.entity';
+import { AchievementGroup } from './entities/achievement-group.entity';
 import { BadgeConfig } from './entities/badge-config.entity';
 import { OutboxEvent } from './entities/outbox-event.entity';
 import { ProcessedEvent } from './entities/processed-event.entity';
@@ -18,10 +19,12 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
 import { AddBadgeAchievementRequirements2026082300040 } from './migrations/2026082300040-AddBadgeAchievementRequirements';
 import { AddConfigDisplayFields2026082300050 } from './migrations/2026082300050-AddConfigDisplayFields';
 import { AddAchievementBadgeIndexes2026082300060 } from './migrations/2026082300060-AddAchievementBadgeIndexes';
+import { AddAchievementGroups2026082400070 } from './migrations/2026082400070-AddAchievementGroups';
 import { CreateLoyaltySchema2026082300020 } from './migrations/2026082300020-CreateLoyaltySchema';
 
 const entities = [
   AchievementConfig,
+  AchievementGroup,
   BadgeConfig,
   OutboxEvent,
   ProcessedEvent,
@@ -42,6 +45,7 @@ const entities = [
         AddBadgeAchievementRequirements2026082300040,
         AddConfigDisplayFields2026082300050,
         AddAchievementBadgeIndexes2026082300060,
+        AddAchievementGroups2026082400070,
       ],
       migrationsRun: true,
       synchronize: false,

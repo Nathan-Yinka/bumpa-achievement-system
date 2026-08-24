@@ -1,5 +1,19 @@
 import type { AchievementRule } from '../rules/rule.types';
 
+export interface AchievementGroupSeed {
+  key: string;
+  name: string;
+  sortOrder: number;
+}
+
+// Groups must exist before any achievement referencing one — achievement_configs.groupKey
+// has a foreign key into achievement_groups.key.
+export const DEFAULT_ACHIEVEMENT_GROUPS: AchievementGroupSeed[] = [
+  { key: 'purchases', name: 'Purchases', sortOrder: 1 },
+  { key: 'spend', name: 'Spend', sortOrder: 2 },
+  { key: 'milestones', name: 'Milestones', sortOrder: 3 },
+];
+
 export interface AchievementSeed {
   id: string;
   name: string;

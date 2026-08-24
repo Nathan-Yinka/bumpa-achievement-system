@@ -7,6 +7,7 @@ import { AdminConfigService } from '../admin/admin-config.service';
 import { getOutboxRuntimeConfig, getRedisConfig } from '../config/env';
 import { LoyaltyConfigSeederService } from '../config/loyalty-config-seeder.service';
 import { AchievementConfig } from '../entities/achievement-config.entity';
+import { AchievementGroup } from '../entities/achievement-group.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
 import { OutboxEvent } from '../entities/outbox-event.entity';
 import { ProcessedEvent } from '../entities/processed-event.entity';
@@ -21,6 +22,7 @@ import { LoyaltyService } from './loyalty.service';
 
 export const loyaltyEntities = [
   AchievementConfig,
+  AchievementGroup,
   BadgeConfig,
   OutboxEvent,
   ProcessedEvent,

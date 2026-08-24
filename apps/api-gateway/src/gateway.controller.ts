@@ -1,15 +1,22 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import type { JsonValue } from '@bumpa/events-sdk';
+import { IDEMPOTENCY_KEY_HEADER, type JsonValue } from '@bumpa/events-sdk';
 import { ApiWrappedAcceptedResponse, ApiWrappedCreatedResponse, ApiWrappedOkResponse } from './common/api-response.decorator';
 import { ApiKeyGuard } from './common/api-key.guard';
+import { CreateAchievementGroupDto, UpdateAchievementGroupDto } from './dto/achievement-group.dto';
 import { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
 import { CreateBadgeConfigDto, UpdateBadgeConfigDto } from './dto/badge-config.dto';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { ListAchievementsQueryDto, ListBadgesQueryDto, ListCashbacksQueryDto } from './dto/list-query.dto';
 import { RetryCashbackDto } from './dto/retry-cashback.dto';
-import { AchievementIdParamDto, BadgeIdParamDto, CashbackIdParamDto, UserIdParamDto } from './dto/safe-id-param.dto';
+import {
+  AchievementGroupKeyParamDto,
+  AchievementIdParamDto,
+  BadgeIdParamDto,
+  CashbackIdParamDto,
+  UserIdParamDto,
+} from './dto/safe-id-param.dto';
 import { MicroserviceHttpClient } from './http/microservice-http-client.service';
 import { MicroserviceName } from './http/microservice.enum';
 
@@ -19,6 +26,12 @@ interface CorrelatedRequest {
 }
 
 type RawWebhookRequest = CorrelatedRequest & { rawBody?: Buffer };
+
+const ACHIEVEMENT_GROUP_EXAMPLE = {
+  key: 'purchases',
+  name: 'Purchases',
+  sortOrder: 1,
+};
 
 const ACHIEVEMENT_EXAMPLE = {
   id: 'ach_20_purchases',
@@ -67,6 +80,11 @@ export class GatewayController {
 
   @Post('purchases')
   @ApiTags('purchases')
+  @ApiHeader({
+    name: 'x-idempotency-key',
+    required: false,
+    description: 'Resubmitting the same key returns the original purchase instead of creating a duplicate.',
+  })
   @ApiOperation({ summary: 'Create a purchase', description: 'Records a purchase and emits PurchaseCompleted.v1, starting achievement processing.' })
   @ApiWrappedCreatedResponse('Creates a purchase and starts achievement processing.', { purchaseId: 'pur_abc123def456' })
   async createPurchase(@Body() dto: CreatePurchaseDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
@@ -76,6 +94,7 @@ export class GatewayController {
       path: '/purchases',
       body: dto,
       correlationId: req.correlationId,
+      headers: this.optionalHeader(IDEMPOTENCY_KEY_HEADER, this.getHeader(req, IDEMPOTENCY_KEY_HEADER)),
     });
   }
 
@@ -97,6 +116,60 @@ export class GatewayController {
       service: MicroserviceName.Loyalty,
       method: 'GET',
       path: `/internal/users/${params.userId}/achievements`,
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Get('admin/achievement-groups')
+  @ApiTags('admin-achievement-groups')
+  @ApiSecurity('admin-api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({ summary: 'List achievement groups', description: 'The categories an achievement\'s groupKey can reference, in display order.' })
+  @ApiWrappedOkResponse('Lists achievement groups, ordered by sortOrder.', [ACHIEVEMENT_GROUP_EXAMPLE])
+  async getAchievementGroups(@Req() req: CorrelatedRequest): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'GET',
+      path: '/admin/achievement-groups',
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Post('admin/achievement-groups')
+  @ApiTags('admin-achievement-groups')
+  @ApiSecurity('admin-api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Create an achievement group',
+    description: 'Must exist before any achievement can reference it as groupKey. sortOrder collisions auto-shift, same as achievements/badges.',
+  })
+  @ApiWrappedCreatedResponse('Creates an achievement group.', ACHIEVEMENT_GROUP_EXAMPLE)
+  async createAchievementGroup(@Body() body: CreateAchievementGroupDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'POST',
+      path: '/admin/achievement-groups',
+      body,
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Patch('admin/achievement-groups/:key')
+  @ApiTags('admin-achievement-groups')
+  @ApiSecurity('admin-api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({ summary: 'Update an achievement group', description: 'Partial update. Only supplied fields change.' })
+  @ApiWrappedOkResponse('Updates an achievement group.', ACHIEVEMENT_GROUP_EXAMPLE)
+  async updateAchievementGroup(
+    @Param() params: AchievementGroupKeyParamDto,
+    @Body() body: UpdateAchievementGroupDto,
+    @Req() req: CorrelatedRequest,
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'PATCH',
+      path: `/admin/achievement-groups/${params.key}`,
+      body,
       correlationId: req.correlationId,
     });
   }
@@ -126,9 +199,10 @@ export class GatewayController {
   @UseGuards(ApiKeyGuard)
   @ApiOperation({
     summary: 'Get the full achievement/badge catalog',
-    description: 'Read-only combined view: every achievement, and every badge with its linked achievement requirements resolved.',
+    description: 'Read-only combined view: every achievement group, every achievement, and every badge with its linked achievement requirements resolved.',
   })
-  @ApiWrappedOkResponse('Lists badges with their linked achievement requirements and reward metadata.', {
+  @ApiWrappedOkResponse('Lists groups, achievements, and badges with their linked achievement requirements and reward metadata.', {
+    groups: [ACHIEVEMENT_GROUP_EXAMPLE],
     achievements: [ACHIEVEMENT_EXAMPLE],
     badges: [{ ...BADGE_EXAMPLE, requiredAchievements: [ACHIEVEMENT_EXAMPLE] }],
   })

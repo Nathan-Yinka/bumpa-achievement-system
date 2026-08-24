@@ -322,6 +322,56 @@ All `/admin/*` endpoints require `x-api-key` — see [Authentication](#authentic
 and badge rules are explained in depth in
 [`apps/loyalty-service/README.md`](apps/loyalty-service/README.md).
 
+### Achievement Groups
+
+An achievement's `groupKey` must reference a real group — it's a foreign key, not free text.
+Create the group first, or `POST`/`PATCH` on an achievement referencing an unknown group
+returns a clean `400`.
+
+```http
+GET /admin/achievement-groups
+```
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "data": [
+    { "key": "purchases", "name": "Purchases", "sortOrder": 1 },
+    { "key": "spend", "name": "Spend", "sortOrder": 2 },
+    { "key": "milestones", "name": "Milestones", "sortOrder": 3 }
+  ],
+  "timestamp": "2026-08-23T12:00:00.000Z"
+}
+```
+
+Not paginated — there are always going to be few enough of these that pagination would be
+pure overhead.
+
+```http
+POST /admin/achievement-groups
+```
+
+```json
+{ "key": "referrals", "name": "Referrals" }
+```
+
+`sortOrder` is optional — omit it to append to the end of the list. Like achievement/badge
+`sortOrder`, saving at an occupied position auto-shifts everything from there onward, no error.
+`key` can't be changed after creation (it's the primary key, and achievements reference it).
+
+```http
+PATCH /admin/achievement-groups/{key}
+```
+
+```json
+{ "name": "Referral Program", "sortOrder": 2 }
+```
+
+Errors: `404` if the group doesn't exist. Creating/updating an achievement with an unknown
+`groupKey`: `400` with `"groupKey references an unknown achievement group — create it first via
+POST /admin/achievement-groups"`.
+
 ### List Achievements
 
 ```http
@@ -489,14 +539,15 @@ Response (`200`): the full updated resource.
 GET /admin/catalog
 ```
 
-Read-only combined view: every achievement, and every badge with its `requiredAchievementIds`
-resolved into full achievement objects.
+Read-only combined view: every achievement group, every achievement, and every badge with its
+`requiredAchievementIds` resolved into full achievement objects.
 
 ```json
 {
   "success": true,
   "statusCode": 200,
   "data": {
+    "groups": [{ "key": "purchases", "name": "Purchases", "sortOrder": 1 }],
     "achievements": [{ "id": "ach_first_purchase", "name": "First Purchase", "...": "..." }],
     "badges": [
       {

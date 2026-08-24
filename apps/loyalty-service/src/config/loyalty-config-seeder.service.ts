@@ -2,12 +2,15 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AchievementConfig } from '../entities/achievement-config.entity';
+import { AchievementGroup } from '../entities/achievement-group.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
-import { DEFAULT_ACHIEVEMENTS, DEFAULT_BADGES } from './default-loyalty-config';
+import { DEFAULT_ACHIEVEMENT_GROUPS, DEFAULT_ACHIEVEMENTS, DEFAULT_BADGES } from './default-loyalty-config';
 
 @Injectable()
 export class LoyaltyConfigSeederService implements OnModuleInit {
   constructor(
+    @InjectRepository(AchievementGroup)
+    private readonly achievementGroupRepository: Repository<AchievementGroup>,
     @InjectRepository(AchievementConfig)
     private readonly achievementRepository: Repository<AchievementConfig>,
     @InjectRepository(BadgeConfig)
@@ -15,6 +18,15 @@ export class LoyaltyConfigSeederService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Groups first — achievements below have a foreign key into this table.
+    const existingGroupKeys = new Set(
+      (await this.achievementGroupRepository.find({ select: ['key'] })).map((group) => group.key),
+    );
+    const missingGroups = DEFAULT_ACHIEVEMENT_GROUPS.filter((group) => !existingGroupKeys.has(group.key));
+    if (missingGroups.length > 0) {
+      await this.achievementGroupRepository.insert(missingGroups);
+    }
+
     // Only inserts achievements/badges that don't exist yet; never touches existing rows.
     const existingAchievementIds = new Set(
       (await this.achievementRepository.find({ select: ['id'] })).map((achievement) => achievement.id),

@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AdminConfigService } from './admin-config.service';
+import { CreateAchievementGroupDto, UpdateAchievementGroupDto } from './dto/achievement-group.dto';
 import { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
 import { CreateBadgeConfigDto, UpdateBadgeConfigDto } from './dto/badge-config.dto';
 import type {
   AchievementConfigResponseDto,
+  AchievementGroupResponseDto,
   BadgeConfigResponseDto,
   LoyaltyConfigCatalogResponseDto,
   PaginatedAchievementConfigResponseDto,
@@ -20,6 +22,21 @@ export class AdminConfigController {
   @Get('catalog')
   getCatalog(): Promise<LoyaltyConfigCatalogResponseDto> {
     return this.adminConfigService.getCatalog();
+  }
+
+  @Get('achievement-groups')
+  listGroups(): Promise<AchievementGroupResponseDto[]> {
+    return this.adminConfigService.listGroups();
+  }
+
+  @Post('achievement-groups')
+  createGroup(@Body() dto: CreateAchievementGroupDto): Promise<AchievementGroupResponseDto> {
+    return this.adminConfigService.createGroup(dto);
+  }
+
+  @Patch('achievement-groups/:key')
+  updateGroup(@Param('key') key: string, @Body() dto: UpdateAchievementGroupDto): Promise<AchievementGroupResponseDto> {
+    return this.adminConfigService.updateGroup(key, dto);
   }
 
   @Get('achievements')

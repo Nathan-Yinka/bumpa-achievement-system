@@ -1,6 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { AchievementRule } from '../../rules/rule.types';
 
+export class AchievementGroupResponseDto {
+  @ApiProperty({ example: 'purchases' })
+  key!: string;
+
+  @ApiProperty({ example: 'Purchases' })
+  name!: string;
+
+  @ApiProperty({ example: 1 })
+  sortOrder!: number;
+}
+
 export class AchievementConfigResponseDto {
   @ApiProperty({ example: 'ach_first_purchase' })
   id!: string;
@@ -65,6 +76,9 @@ export class BadgeCatalogItemDto extends BadgeConfigResponseDto {
 }
 
 export class LoyaltyConfigCatalogResponseDto {
+  @ApiProperty({ type: [AchievementGroupResponseDto] })
+  groups!: AchievementGroupResponseDto[];
+
   @ApiProperty({ type: [AchievementConfigResponseDto] })
   achievements!: AchievementConfigResponseDto[];
 

@@ -12,6 +12,16 @@ handful of seed rows exist so the system does something out of the box (`default
 inserted once by `LoyaltyConfigSeederService` on first boot — never overwrites an admin's
 changes), but they're just data too, editable the same way as anything an admin creates.
 
+### Achievement groups
+
+An achievement's `groupKey` (`purchases`, `spend`, `milestones`, ...) isn't free text — it's a
+foreign key into its own `achievement_groups` table (`key`, `name`, `sortOrder`), managed the
+same way as achievements/badges: `GET`/`POST`/`PATCH /admin/achievement-groups`, same
+sortOrder-collision auto-shift. That table exists specifically so a typo'd `groupKey` on an
+achievement is a real `400` at write time, not a silently-created phantom group nothing ever
+warns you about — creating or updating an achievement with an unknown `groupKey` fails cleanly
+instead of writing a row TypeORM's FK constraint would otherwise reject as a raw `500`.
+
 ### Achievement rules
 
 An achievement's `rule` column is a small JSON expression, evaluated by `RuleEngineService`

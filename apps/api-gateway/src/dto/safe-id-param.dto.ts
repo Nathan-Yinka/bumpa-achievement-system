@@ -34,3 +34,11 @@ export class CashbackIdParamDto {
   })
   id!: string;
 }
+
+export class AchievementGroupKeyParamDto {
+  @ApiProperty({ example: 'purchases' })
+  @Matches(SAFE_ID_PATTERN, {
+    message: 'key may only contain letters, numbers, underscores, and hyphens',
+  })
+  key!: string;
+}

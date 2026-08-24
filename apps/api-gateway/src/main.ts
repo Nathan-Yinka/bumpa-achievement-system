@@ -63,6 +63,7 @@ async function bootstrap(): Promise<void> {
         .addTag('health', 'Service health check.')
         .addTag('purchases', 'Create purchases and start achievement processing.')
         .addTag('achievements', "Read a customer's unlocked achievements and badge progress.")
+        .addTag('admin-achievement-groups', 'Manage the categories achievements belong to. Requires x-api-key.')
         .addTag('admin-achievements', 'Manage achievement configuration. Requires x-api-key.')
         .addTag('admin-badges', 'Manage badge configuration. Requires x-api-key.')
         .addTag('admin-catalog', 'Read-only combined view of achievements and badges. Requires x-api-key.')

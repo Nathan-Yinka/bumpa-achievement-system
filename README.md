@@ -138,10 +138,11 @@ waits for a human. Full design + diagram: [`apps/cashback-service/README.md`](ap
 ### Configurable achievements and badges
 
 Nothing about what unlocks what is hardcoded — achievement rules (`COUNT`, `SUM`,
-`COMBINATION`, `ACHIEVEMENT_SET`) and badge thresholds are rows an admin creates and edits over
-HTTP, validated at the write boundary so a malformed rule can never reach the database and
-crash evaluation later on some unrelated user's purchase. Full explanation:
-[`apps/loyalty-service/README.md`](apps/loyalty-service/README.md).
+`COMBINATION`, `ACHIEVEMENT_SET`), the groups achievements belong to, and badge thresholds are
+all rows an admin creates and edits over HTTP, validated at the write boundary so a malformed
+rule (or an achievement pointing at a group that doesn't exist — `groupKey` is a real foreign
+key, not free text) can never reach the database and crash evaluation later on some unrelated
+user's purchase. Full explanation: [`apps/loyalty-service/README.md`](apps/loyalty-service/README.md).
 
 ### Everything correlates
 
