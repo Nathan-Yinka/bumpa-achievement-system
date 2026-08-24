@@ -1,6 +1,6 @@
 name: Deploy
 
-# Ships develop/main to the VPS: the runner checks out the repo (works even while
+# Ships main/deploy to the VPS: the runner checks out the repo (works even while
 # it's private, since actions/checkout already has repo access), rsyncs the tree
 # over SSH, then runs docker compose on the box. The VPS itself never needs its
 # own GitHub credentials.
@@ -19,15 +19,15 @@ name: Deploy
 # This workflow only ever touches VPS_APP_DIR, so it can't collide with other
 # apps already running on a shared host.
 
-# Deploys only after CI (lint/build/unit/e2e) has actually passed on develop or
-# main — this listens for the CI workflow to finish rather than racing it on its
+# Deploys only after CI (lint/build/unit/e2e) has actually passed on main or
+# deploy — this listens for the CI workflow to finish rather than racing it on its
 # own push trigger. workflow_dispatch is kept for a manual re-deploy with no code
 # change (e.g. after fixing something by hand on the box).
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [develop, main]
+    branches: [main, deploy]
   workflow_dispatch: {}
 
 # A newer deploy of the same branch supersedes one still running rather than

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main, deploy]
   pull_request:
-    branches: ['**']
+    branches: [main, deploy]
 
 # A new push to the same branch/PR cancels whatever CI run is already in flight
 # for it, instead of letting both run to completion.
