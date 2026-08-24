@@ -15,6 +15,7 @@ interface ForwardRequest {
   body?: object;
   query?: object;
   correlationId?: string;
+  headers?: Record<string, string>;
 }
 
 interface ForwardRawRequest {
@@ -52,6 +53,7 @@ export class MicroserviceHttpClient {
           headers: {
             'content-type': 'application/json',
             ...(request.correlationId ? { [CORRELATION_ID_HEADER]: request.correlationId } : {}),
+            ...request.headers,
           },
         });
         this.logger.log(`${request.method.toUpperCase()} ${url} -> ${response.status} ${Date.now() - startedAt}ms`);

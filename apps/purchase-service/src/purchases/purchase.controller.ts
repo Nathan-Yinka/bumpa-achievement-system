@@ -1,9 +1,8 @@
 import { Body, Controller, Headers, Post, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { createReadableId, EntityIdPrefix } from '@bumpa/events-sdk';
+import { createReadableId, EntityIdPrefix, IDEMPOTENCY_KEY_HEADER } from '@bumpa/events-sdk';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
-import { IDEMPOTENCY_KEY_HEADER } from './idempotency.constants';
 import { PurchaseService } from './purchase.service';
 
 @ApiTags('purchases')

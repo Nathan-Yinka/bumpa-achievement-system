@@ -52,6 +52,12 @@ interface ErrorEnvelope {
   message: string;
 }
 
+interface AchievementGroupResponse {
+  key: string;
+  name: string;
+  sortOrder: number;
+}
+
 interface AchievementConfigResponse {
   id: string;
   name: string;
@@ -207,6 +213,19 @@ describe('Bumpa achievement system e2e', () => {
       .expect(400);
   });
 
+  it('forwards x-idempotency-key through the gateway so a repeat request does not create a duplicate purchase', async () => {
+    const idempotencyKey = `idem_e2e_${Date.now()}`;
+    const userId = `usr_idem_e2e_${Date.now()}`;
+    const body = { userId, email: `${userId}@getbumpa.com`, name: 'Idempotency Test', amountKobo: 500000 };
+
+    const first = await request(gatewayUrl).post('/purchases').set('x-idempotency-key', idempotencyKey).send(body).expect(201);
+    const second = await request(gatewayUrl).post('/purchases').set('x-idempotency-key', idempotencyKey).send(body).expect(201);
+
+    expect((second.body as ApiEnvelope<PurchaseResponse>).data.purchaseId).toBe(
+      (first.body as ApiEnvelope<PurchaseResponse>).data.purchaseId,
+    );
+  });
+
   it('returns an empty achievement state for a user who has never purchased anything', async () => {
     const state = await getEnvelope<AchievementState>(`/users/usr_never_purchased_${Date.now()}/achievements`);
     expect(state.data.unlocked_achievements).toEqual([]);
@@ -216,8 +235,17 @@ describe('Bumpa achievement system e2e', () => {
 
   it('supports the full achievement/badge admin CRUD lifecycle', async () => {
     const suffix = Date.now();
+    const groupKey = `e2e_${suffix}`;
     const achievementId = `ach_e2e_${suffix}`;
     const badgeId = `bdg_e2e_${suffix}`;
+
+    // groupKey is a real foreign key now — the group has to exist before an achievement can
+    // reference it.
+    await request(gatewayUrl)
+      .post('/admin/achievement-groups')
+      .set('x-api-key', apiKey)
+      .send({ key: groupKey, name: 'E2E Group' })
+      .expect(201);
 
     const createdAchievement = await request(gatewayUrl)
       .post('/admin/achievements')
@@ -226,7 +254,7 @@ describe('Bumpa achievement system e2e', () => {
         id: achievementId,
         name: `E2E Achievement ${suffix}`,
         description: 'Created by the e2e suite.',
-        groupKey: 'e2e',
+        groupKey,
         sortOrder: 1,
         rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 100 },
         active: true,
@@ -273,11 +301,52 @@ describe('Bumpa achievement system e2e', () => {
       .expect(200);
     expect((updatedBadge.body as ApiEnvelope<BadgeConfigResponse>).data.requiredAchievementCount).toBe(2);
 
-    const catalog = await getAdminEnvelope<{ achievements: AchievementConfigResponse[]; badges: BadgeConfigResponse[] }>(
-      '/admin/catalog',
-    );
+    const catalog = await getAdminEnvelope<{
+      groups: AchievementGroupResponse[];
+      achievements: AchievementConfigResponse[];
+      badges: BadgeConfigResponse[];
+    }>('/admin/catalog');
+    expect(catalog.data.groups.some((group) => group.key === groupKey)).toBe(true);
     expect(catalog.data.achievements.some((achievement) => achievement.id === achievementId)).toBe(true);
     expect(catalog.data.badges.some((badge) => badge.id === badgeId)).toBe(true);
+  });
+
+  it('supports the achievement-group lifecycle and rejects an achievement referencing an unknown group', async () => {
+    const suffix = Date.now();
+    const groupKey = `e2e_groups_${suffix}`;
+
+    const created = await request(gatewayUrl)
+      .post('/admin/achievement-groups')
+      .set('x-api-key', apiKey)
+      .send({ key: groupKey, name: 'E2E Groups Test' })
+      .expect(201);
+    expect((created.body as ApiEnvelope<AchievementGroupResponse>).data.key).toBe(groupKey);
+
+    const listed = await getAdminEnvelope<AchievementGroupResponse[]>('/admin/achievement-groups');
+    expect(listed.data.some((group) => group.key === groupKey)).toBe(true);
+
+    const updated = await request(gatewayUrl)
+      .patch(`/admin/achievement-groups/${groupKey}`)
+      .set('x-api-key', apiKey)
+      .send({ name: 'E2E Groups Test (renamed)' })
+      .expect(200);
+    expect((updated.body as ApiEnvelope<AchievementGroupResponse>).data.name).toBe('E2E Groups Test (renamed)');
+
+    // The actual point of the FK: an achievement can't reference a group that was never created.
+    const rejected = await request(gatewayUrl)
+      .post('/admin/achievements')
+      .set('x-api-key', apiKey)
+      .send({
+        id: `ach_bad_group_${suffix}`,
+        name: 'Bad Group',
+        description: 'Should be rejected.',
+        groupKey: `does_not_exist_${suffix}`,
+        sortOrder: 1,
+        rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+        active: true,
+      })
+      .expect(400);
+    expect((rejected.body as ErrorEnvelope).message).toContain('unknown achievement group');
   });
 
   it('rejects an achievement with a malformed rule instead of silently accepting it', async () => {
@@ -288,7 +357,7 @@ describe('Bumpa achievement system e2e', () => {
         id: `ach_bad_rule_${Date.now()}`,
         name: 'Bad Rule',
         description: 'Should be rejected.',
-        groupKey: 'e2e',
+        groupKey: 'purchases', // a real, seeded group — this test is about the rule, not groupKey
         sortOrder: 1,
         rule: { type: 'NONSENSE', foo: 'bar' },
         active: true,

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min, ValidateIf } from 'class-validator';
+import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateIf } from 'class-validator';
 
 // High but bounded purchase amount in kobo.
 const MAX_AMOUNT_KOBO = 100_000_000_00;
@@ -8,14 +8,18 @@ export class CreatePurchaseDto {
   @ApiProperty({ example: 'usr_amc5k2n9xq01' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   userId!: string;
 
   @ApiProperty({ example: 'oludarenathaniel@gmail.com' })
   @IsEmail()
+  @MaxLength(320)
   email!: string;
 
   @ApiProperty({ example: 'Nathaniel Adeyinka Oludare' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   name!: string;
 
   @ApiProperty({ example: '2152454812', required: false })

@@ -1,17 +1,22 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreatePurchaseDto {
   @ApiProperty({ example: 'usr_amc5k2n9xq01' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   userId!: string;
 
   @ApiProperty({ example: 'oludarenathaniel@gmail.com' })
   @IsEmail()
+  @MaxLength(320)
   email!: string;
 
   @ApiProperty({ example: 'Nathaniel Adeyinka Oludare' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   name!: string;
 
   @ApiProperty({ example: '2152454812', required: false })
