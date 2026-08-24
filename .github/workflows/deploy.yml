@@ -18,6 +18,12 @@ name: Deploy
 #
 # This workflow only ever touches VPS_APP_DIR, so it can't collide with other
 # apps already running on a shared host.
+#
+# IMPORTANT: this is a workflow_run trigger, and GitHub evaluates those against
+# the workflow file on the repo's DEFAULT branch — not whichever branch's CI
+# just completed. Any edit here (or to ci.yml) must also land on the default
+# branch (currently `develop`), or GitHub keeps silently running the stale
+# version for every push, no matter what's on main/deploy.
 
 # Deploys only after CI (lint/build/unit/e2e) has actually passed on main or
 # deploy — this listens for the CI workflow to finish rather than racing it on its
