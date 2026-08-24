@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Bumpa Event Stream</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --dim: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 1;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+  .dot.off { background: #f85149; }
+  .count { font-size: 12px; color: var(--dim); margin-left: auto; }
+  button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: #8b949e; }
+  main { padding: 16px 20px; max-width: 900px; margin: 0 auto; }
+  .empty { color: var(--dim); font-size: 13px; padding: 40px 0; text-align: center; }
+  .event {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent, #8b949e);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    animation: in 0.2s ease-out;
+  }
+  @keyframes in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .event .top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .event .type { font-weight: 600; font-size: 13px; }
+  .event .time { color: var(--dim); font-size: 11px; margin-left: auto; }
+  .event dl { display: grid; grid-template-columns: 120px 1fr; gap: 2px 8px; font-size: 12px; margin: 0 0 8px 0; }
+  .event dt { color: var(--dim); }
+  .event dd { margin: 0; word-break: break-all; }
+  .event dd .hint { color: var(--dim); font-style: italic; }
+  .event pre {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin: 0;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>&#9679; Bumpa Event Stream</h1>
+    <div class="status"><span class="dot off" id="dot"></span><span id="statusText">connecting…</span></div>
+    <span class="count" id="count">0 events</span>
+    <button id="clear">Clear</button>
+  </header>
+  <main>
+    <div class="empty" id="empty">Waiting for events — trigger a purchase and watch it flow through.</div>
+    <div id="feed"></div>
+  </main>
+
+  <script>
+    const COLORS = {
+      'PurchaseCompleted.v1': '#39c5cf',
+      'AchievementUnlocked.v1': '#d29922',
+      'BadgeUnlocked.v1': '#bc8cff',
+      'CashbackProcessed.v1': '#3fb950',
+    };
+
+    const feed = document.getElementById('feed');
+    const empty = document.getElementById('empty');
+    const countEl = document.getElementById('count');
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('statusText');
+    let count = 0;
+
+    document.getElementById('clear').addEventListener('click', () => {
+      feed.innerHTML = '';
+      count = 0;
+      countEl.textContent = '0 events';
+      empty.style.display = 'block';
+    });
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      })[c]);
+    }
+
+    function renderEvent(event) {
+      empty.style.display = 'none';
+      count += 1;
+      countEl.textContent = `${count} event${count === 1 ? '' : 's'}`;
+
+      const type = event.type || 'unknown';
+      const color = COLORS[type] || '#8b949e';
+      const time = event.occurredAt ? new Date(event.occurredAt).toLocaleTimeString() : '';
+      const payload = JSON.stringify(event.payload ?? {}, null, 2);
+
+      const card = document.createElement('div');
+      card.className = 'event';
+      card.style.setProperty('--accent', color);
+      card.innerHTML = `
+        <div class="top">
+          <span class="type" style="color:${color}">${escapeHtml(type)}</span>
+          <span class="time">${escapeHtml(time)}</span>
+        </div>
+        <dl>
+          <dt>exchange</dt><dd>${escapeHtml(event.exchange ?? '-')}</dd>
+          <dt>routingKey</dt><dd>${escapeHtml(event.routingKey ?? '-')}</dd>
+          <dt>watcherQueue</dt><dd>${escapeHtml(event.watcherQueue ?? '-')} <span class="hint">(this page's own temporary tap)</span></dd>
+          <dt>consumedBy</dt><dd>${escapeHtml(event.consumedBy ?? '-')}</dd>
+          <dt>eventId</dt><dd>${escapeHtml(event.eventId ?? '-')}</dd>
+          <dt>correlationId</dt><dd>${escapeHtml(event.correlationId ?? '-')}</dd>
+        </dl>
+        <pre>${escapeHtml(payload)}</pre>
+      `;
+      feed.prepend(card);
+    }
+
+    const source = new EventSource('/events');
+    source.onopen = () => {
+      dot.classList.remove('off');
+      statusText.textContent = 'live';
+    };
+    source.onerror = () => {
+      dot.classList.add('off');
+      statusText.textContent = 'reconnecting…';
+    };
+    source.onmessage = (message) => {
+      try {
+        renderEvent(JSON.parse(message.data));
+      } catch (error) {
+        console.error('Could not parse event', error);
+      }
+    };
+  </script>
+</body>
+</html>

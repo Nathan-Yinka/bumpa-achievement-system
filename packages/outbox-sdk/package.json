@@ -1,0 +1,22 @@
+{
+  "name": "@bumpa/outbox-sdk",
+  "version": "1.0.0",
+  "description": "Scheduled transactional outbox publisher for Bumpa backend services.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "dependencies": {
+    "@bumpa/broker-sdk": "1.0.0",
+    "@bumpa/events-sdk": "1.0.0",
+    "@nestjs/common": "^10.4.20",
+    "@nestjs/schedule": "^4.1.2",
+    "ioredis": "^5.7.0",
+    "typeorm": "^0.3.26"
+  }
+}

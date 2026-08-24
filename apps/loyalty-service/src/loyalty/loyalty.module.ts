@@ -1,0 +1,54 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { OutboxLockKey } from '@bumpa/events-sdk';
+import { OutboxModule } from '@bumpa/outbox-sdk';
+import { AdminConfigController } from '../admin/admin-config.controller';
+import { AdminConfigService } from '../admin/admin-config.service';
+import { getOutboxRuntimeConfig, getRedisConfig } from '../config/env';
+import { LoyaltyConfigSeederService } from '../config/loyalty-config-seeder.service';
+import { AchievementConfig } from '../entities/achievement-config.entity';
+import { AchievementGroup } from '../entities/achievement-group.entity';
+import { BadgeConfig } from '../entities/badge-config.entity';
+import { OutboxEvent } from '../entities/outbox-event.entity';
+import { ProcessedEvent } from '../entities/processed-event.entity';
+import { UserAchievement } from '../entities/user-achievement.entity';
+import { UserBadge } from '../entities/user-badge.entity';
+import { UserProjection } from '../entities/user-projection.entity';
+import { UserStats } from '../entities/user-stats.entity';
+import { PurchaseCompletedConsumer } from '../messaging/purchase-completed.consumer';
+import { RuleEngineService } from '../rules/rule-engine.service';
+import { LoyaltyController } from './loyalty.controller';
+import { LoyaltyService } from './loyalty.service';
+
+export const loyaltyEntities = [
+  AchievementConfig,
+  AchievementGroup,
+  BadgeConfig,
+  OutboxEvent,
+  ProcessedEvent,
+  UserAchievement,
+  UserBadge,
+  UserProjection,
+  UserStats,
+];
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature(loyaltyEntities),
+    OutboxModule.forRoot({
+      entity: OutboxEvent,
+      lockKey: OutboxLockKey.Loyalty,
+      redis: getRedisConfig(),
+      ...getOutboxRuntimeConfig(),
+    }),
+  ],
+  controllers: [LoyaltyController, AdminConfigController],
+  providers: [
+    LoyaltyService,
+    AdminConfigService,
+    RuleEngineService,
+    LoyaltyConfigSeederService,
+    PurchaseCompletedConsumer,
+  ],
+})
+export class LoyaltyModule {}

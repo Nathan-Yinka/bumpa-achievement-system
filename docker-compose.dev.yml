@@ -1,0 +1,34 @@
+# Dev-only overlay: adds host port mappings so you can connect a DB client, a Redis client,
+# the RabbitMQ management UI, and each microservice directly, bypassing the gateway.
+#
+# Never used on its own — it only adds `ports:` to services already defined in
+# docker-compose.yml. Run both files together:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# or use the shortcut: npm run docker:dev
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+
+  rabbitmq:
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
+
+  purchase-service:
+    ports:
+      - "${PURCHASE_SERVICE_HOST_PORT:-3001}:3001"
+
+  loyalty-service:
+    ports:
+      - "${LOYALTY_SERVICE_HOST_PORT:-3002}:3002"
+
+  cashback-service:
+    ports:
+      - "${CASHBACK_SERVICE_HOST_PORT:-3004}:3004"

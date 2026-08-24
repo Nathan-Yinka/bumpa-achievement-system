@@ -1,0 +1,206 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bumpa
+      POSTGRES_PASSWORD: bumpa
+      POSTGRES_DB: postgres
+    expose:
+      - "5432"
+    networks:
+      - backend
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bumpa -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: bumpa
+      RABBITMQ_DEFAULT_PASS: bumpa
+    expose:
+      - "5672"
+      - "15672"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    expose:
+      - "6379"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: api-gateway
+    environment:
+      NODE_ENV: development
+      API_GATEWAY_PORT: 3000
+      PURCHASE_SERVICE_HOST: purchase-service
+      PURCHASE_SERVICE_PORT: 3001
+      LOYALTY_SERVICE_HOST: loyalty-service
+      LOYALTY_SERVICE_PORT: 3002
+      CASHBACK_SERVICE_HOST: cashback-service
+      CASHBACK_SERVICE_PORT: 3004
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-bumpa-local-admin-key}
+    ports:
+      - "${API_GATEWAY_HOST_PORT:-3000}:3000"
+    networks:
+      - edge
+      - backend
+
+  purchase-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: purchase-service
+    environment:
+      NODE_ENV: development
+      PURCHASE_SERVICE_PORT: 3001
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: bumpa
+      DATABASE_PASSWORD: bumpa
+      PURCHASE_DATABASE_NAME: purchase_db
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: bumpa
+      RABBITMQ_PASSWORD: bumpa
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OUTBOX_BATCH_SIZE: 20
+      OUTBOX_MAX_ATTEMPTS: 5
+      OUTBOX_LOCK_TTL_MS: 5000
+      OUTBOX_POLL_INTERVAL_MS: 30000
+    expose:
+      - "3001"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  loyalty-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: loyalty-service
+    environment:
+      NODE_ENV: development
+      LOYALTY_SERVICE_PORT: 3002
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: bumpa
+      DATABASE_PASSWORD: bumpa
+      LOYALTY_DATABASE_NAME: loyalty_db
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: bumpa
+      RABBITMQ_PASSWORD: bumpa
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OUTBOX_BATCH_SIZE: 20
+      OUTBOX_MAX_ATTEMPTS: 5
+      OUTBOX_LOCK_TTL_MS: 5000
+      OUTBOX_POLL_INTERVAL_MS: 30000
+    expose:
+      - "3002"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  cashback-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args:
+        APP: cashback-service
+    environment:
+      NODE_ENV: development
+      CASHBACK_SERVICE_PORT: 3004
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: bumpa
+      DATABASE_PASSWORD: bumpa
+      CASHBACK_DATABASE_NAME: cashback_db
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: bumpa
+      RABBITMQ_PASSWORD: bumpa
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OUTBOX_BATCH_SIZE: 20
+      OUTBOX_MAX_ATTEMPTS: 5
+      OUTBOX_LOCK_TTL_MS: 5000
+      OUTBOX_POLL_INTERVAL_MS: 30000
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      CASHBACK_AMOUNT_KOBO: ${CASHBACK_AMOUNT_KOBO:-30000}
+    expose:
+      - "3004"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  events-dashboard:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/events-dashboard.Dockerfile
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: bumpa
+      RABBITMQ_PASSWORD: bumpa
+      EVENTS_DASHBOARD_PORT: 4100
+    ports:
+      - "${EVENTS_DASHBOARD_HOST_PORT:-4100}:4100"
+    networks:
+      - edge
+      - backend
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  edge:
+  backend:

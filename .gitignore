@@ -1,12 +1,15 @@
 node_modules
 dist
 coverage
+docs/
 packages/*/src/*.js
 packages/*/src/*.js.map
 packages/*/src/*.d.ts
 .env
 .env.*
 !.env.example
+!.env.docker.example
 *.log
 .DS_Store
 apps/**/prisma/migrations/*/migration_lock.toml
+.claude
