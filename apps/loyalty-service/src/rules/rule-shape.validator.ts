@@ -9,13 +9,26 @@ export function isValidAchievementRuleShape(value: unknown): value is Achievemen
   const rule = value as Record<string, unknown>;
 
   switch (rule.type) {
+    // RuleEngineService dispatches purely on `type`, not `field` — it never reads `field` to
+    // decide what to compare against. So `field` has to be checked here against the one
+    // literal each type actually means, or an admin could create a COUNT rule labeled
+    // "total_spend_kobo" that silently evaluates against purchase count anyway.
     case 'COUNT':
-    case 'SUM':
       return (
-        typeof rule.field === 'string' &&
+        rule.field === 'purchase_count' &&
         rule.operator === 'GTE' &&
         typeof rule.value === 'number' &&
-        Number.isFinite(rule.value)
+        Number.isFinite(rule.value) &&
+        rule.value >= 0
+      );
+
+    case 'SUM':
+      return (
+        rule.field === 'total_spend_kobo' &&
+        rule.operator === 'GTE' &&
+        typeof rule.value === 'number' &&
+        Number.isFinite(rule.value) &&
+        rule.value >= 0
       );
 
     case 'COMBINATION':

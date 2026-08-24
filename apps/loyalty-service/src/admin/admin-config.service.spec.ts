@@ -1,12 +1,16 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { QueryFailedError } from 'typeorm';
 import { AchievementConfig } from '../entities/achievement-config.entity';
+import { AchievementGroup } from '../entities/achievement-group.entity';
 import { BadgeConfig } from '../entities/badge-config.entity';
 import { AdminConfigService } from './admin-config.service';
 import { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
+import { CreateAchievementGroupDto } from './dto/achievement-group.dto';
+import { CreateBadgeConfigDto } from './dto/badge-config.dto';
 
 interface MockRepository<TEntity extends object> {
   find: jest.Mock;
@@ -25,9 +29,11 @@ function createRepository<TEntity extends object>(): MockRepository<TEntity> {
 describe('AdminConfigService', () => {
   let service: AdminConfigService;
   let achievements: MockRepository<AchievementConfig>;
+  let groups: MockRepository<AchievementGroup>;
   let badges: MockRepository<BadgeConfig>;
   let manager: {
     findOneBy: jest.Mock;
+    findOne: jest.Mock;
     create: jest.Mock;
     merge: jest.Mock;
     save: jest.Mock;
@@ -37,9 +43,11 @@ describe('AdminConfigService', () => {
 
   beforeEach(async () => {
     achievements = createRepository<AchievementConfig>();
+    groups = createRepository<AchievementGroup>();
     badges = createRepository<BadgeConfig>();
     manager = {
       findOneBy: jest.fn(),
+      findOne: jest.fn(),
       create: jest.fn((_entity, data) => data),
       merge: jest.fn((_entity, target, dto) => Object.assign(target, dto)),
       save: jest.fn(async (_entity, data) => data),
@@ -54,6 +62,7 @@ describe('AdminConfigService', () => {
         AdminConfigService,
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: getRepositoryToken(AchievementConfig), useValue: achievements },
+        { provide: getRepositoryToken(AchievementGroup), useValue: groups },
         { provide: getRepositoryToken(BadgeConfig), useValue: badges },
       ],
     }).compile();
@@ -74,6 +83,32 @@ describe('AdminConfigService', () => {
     expect(result.active).toBe(true);
     expect(result.description).toBe('Complete 20 purchases.');
     expect(manager.save).toHaveBeenCalledWith(AchievementConfig, expect.objectContaining({ id: 'ach_20_purchases' }));
+  });
+
+  // The gateway's DTO already treats description as optional (the column defaults to ''); this
+  // one used to be required here only, so a client that followed the gateway's own Swagger doc
+  // and omitted it got a confusing 400 from loyalty-service.
+  it('creates an achievement without a description', async () => {
+    const result = await service.createAchievement({
+      id: 'ach_no_desc',
+      name: 'No Description',
+      groupKey: 'purchases',
+      sortOrder: 5,
+      rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+    });
+
+    expect(result.id).toBe('ach_no_desc');
+  });
+
+  it('creates a badge without a description', async () => {
+    const result = await service.createBadge({
+      id: 'bdg_no_desc',
+      name: 'No Description',
+      sortOrder: 5,
+      requiredAchievementCount: 1,
+    });
+
+    expect(result.id).toBe('bdg_no_desc');
   });
 
   it('updates an existing badge config', async () => {
@@ -155,6 +190,7 @@ describe('AdminConfigService', () => {
   });
 
   it('returns a structured catalog with badge achievement links', async () => {
+    groups.find.mockResolvedValue([{ key: 'purchases', name: 'Purchases', sortOrder: 1 }]);
     achievements.find.mockResolvedValue([
       {
         id: 'ach_first_purchase',
@@ -190,6 +226,7 @@ describe('AdminConfigService', () => {
 
     const result = await service.getCatalog();
 
+    expect(result.groups).toEqual([{ key: 'purchases', name: 'Purchases', sortOrder: 1 }]);
     expect(result.badges).toEqual([
       expect.objectContaining({
         id: 'bdg_beginner',
@@ -281,6 +318,203 @@ describe('AdminConfigService', () => {
         'sortOrder',
         1,
       );
+    });
+  });
+
+  describe('rejects an empty name/id/key instead of silently accepting it', () => {
+    it('rejects an empty achievement name', async () => {
+      const dto = plainToInstance(CreateAchievementConfigDto, {
+        id: 'ach_x',
+        name: '',
+        description: 'desc',
+        groupKey: 'purchases',
+        sortOrder: 1,
+        rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+      });
+
+      const errors = await validate(dto);
+
+      expect(errors.some((error) => error.property === 'name')).toBe(true);
+    });
+
+    it('rejects an empty badge name', async () => {
+      const dto = plainToInstance(CreateBadgeConfigDto, {
+        id: 'bdg_x',
+        name: '',
+        description: 'desc',
+        sortOrder: 1,
+        requiredAchievementCount: 1,
+      });
+
+      const errors = await validate(dto);
+
+      expect(errors.some((error) => error.property === 'name')).toBe(true);
+    });
+
+    it('rejects an empty group key', async () => {
+      const dto = plainToInstance(CreateAchievementGroupDto, { key: '', name: 'Purchases' });
+
+      const errors = await validate(dto);
+
+      expect(errors.some((error) => error.property === 'key')).toBe(true);
+    });
+
+    it('rejects a name over the length limit instead of accepting an unbounded string', async () => {
+      const dto = plainToInstance(CreateAchievementGroupDto, { key: 'x', name: 'A'.repeat(5000) });
+
+      const errors = await validate(dto);
+
+      expect(errors.some((error) => error.property === 'name')).toBe(true);
+    });
+  });
+
+  describe('duplicate id/key on create (save() upserts a manually-assigned primary key otherwise)', () => {
+    it('rejects creating an achievement whose id already exists instead of silently overwriting it', async () => {
+      manager.findOneBy.mockResolvedValueOnce({ id: 'ach_first_purchase' });
+
+      await expect(
+        service.createAchievement({
+          id: 'ach_first_purchase',
+          name: 'Overwrite Attempt',
+          description: 'desc',
+          groupKey: 'purchases',
+          sortOrder: 1,
+          rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects creating a badge whose id already exists', async () => {
+      manager.findOneBy.mockResolvedValueOnce({ id: 'bdg_beginner' });
+
+      await expect(
+        service.createBadge({ id: 'bdg_beginner', name: 'Overwrite', description: 'desc', sortOrder: 1, requiredAchievementCount: 1 }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects creating a group whose key already exists', async () => {
+      manager.findOneBy.mockResolvedValueOnce({ key: 'purchases' });
+
+      await expect(service.createGroup({ key: 'purchases', name: 'Overwrite' })).rejects.toBeInstanceOf(ConflictException);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ACHIEVEMENT_SET rule referencing an unknown achievement id', () => {
+    it('rejects a bare ACHIEVEMENT_SET rule referencing an achievement that does not exist', async () => {
+      achievements.find.mockResolvedValue([]);
+
+      await expect(
+        service.createAchievement({
+          id: 'ach_set_bad',
+          name: 'Set Bad',
+          description: 'desc',
+          groupKey: 'purchases',
+          sortOrder: 1,
+          rule: { type: 'ACHIEVEMENT_SET', achievementIds: ['ach_does_not_exist'] },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects an ACHIEVEMENT_SET nested inside a COMBINATION referencing an unknown id', async () => {
+      achievements.find.mockResolvedValue([]);
+
+      await expect(
+        service.createAchievement({
+          id: 'ach_nested_bad',
+          name: 'Nested Bad',
+          description: 'desc',
+          groupKey: 'purchases',
+          sortOrder: 1,
+          rule: {
+            type: 'COMBINATION',
+            operator: 'AND',
+            rules: [
+              { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+              { type: 'ACHIEVEMENT_SET', achievementIds: ['ach_does_not_exist'] },
+            ],
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('accepts an ACHIEVEMENT_SET rule whose referenced achievement exists', async () => {
+      achievements.find.mockResolvedValue([{ id: 'ach_first_purchase' } as AchievementConfig]);
+
+      const result = await service.createAchievement({
+        id: 'ach_set_good',
+        name: 'Set Good',
+        description: 'desc',
+        groupKey: 'purchases',
+        sortOrder: 1,
+        rule: { type: 'ACHIEVEMENT_SET', achievementIds: ['ach_first_purchase'] },
+      });
+
+      expect(result.id).toBe('ach_set_good');
+    });
+  });
+
+  describe('achievement groups', () => {
+    it('lists groups ordered by sortOrder', async () => {
+      groups.find.mockResolvedValue([{ key: 'purchases', name: 'Purchases', sortOrder: 1 }]);
+
+      const result = await service.listGroups();
+
+      expect(groups.find).toHaveBeenCalledWith({ order: { sortOrder: 'ASC' } });
+      expect(result).toEqual([{ key: 'purchases', name: 'Purchases', sortOrder: 1 }]);
+    });
+
+    it('creates a group, defaulting sortOrder to the end of the list when omitted', async () => {
+      manager.findOne.mockResolvedValue({ key: 'spend', name: 'Spend', sortOrder: 2 });
+
+      const result = await service.createGroup({ key: 'milestones', name: 'Milestones' });
+
+      expect(result.sortOrder).toBe(3);
+      expect(manager.save).toHaveBeenCalledWith(AchievementGroup, expect.objectContaining({ key: 'milestones', sortOrder: 3 }));
+    });
+
+    it('shifts groups at or after the target position when creating at an explicit sortOrder', async () => {
+      await service.createGroup({ key: 'new-group', name: 'New Group', sortOrder: 2 });
+
+      expect(manager.increment).toHaveBeenCalledWith(
+        AchievementGroup,
+        expect.objectContaining({ sortOrder: expect.anything() }),
+        'sortOrder',
+        1,
+      );
+    });
+
+    it('throws NotFoundException updating a group that does not exist', async () => {
+      manager.findOneBy.mockResolvedValue(null);
+
+      await expect(service.updateGroup('missing', { name: 'x' })).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('turns a groupKey foreign-key violation into a clean BadRequestException', async () => {
+      dataSource.transaction.mockImplementationOnce(async () => {
+        throw new QueryFailedError(
+          'insert',
+          [],
+          {
+            code: '23503',
+            message:
+              'insert or update on table "achievement_configs" violates foreign key constraint "FK_achievement_configs_groupKey_achievement_groups_key"',
+          } as never,
+        );
+      });
+
+      await expect(
+        service.createAchievement({
+          id: 'ach_bad_group',
+          name: 'Bad Group',
+          description: 'desc',
+          groupKey: 'not-a-real-group',
+          sortOrder: 1,
+          rule: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 1 },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

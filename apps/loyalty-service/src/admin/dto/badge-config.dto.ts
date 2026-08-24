@@ -1,18 +1,24 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsInt, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
 
 export class CreateBadgeConfigDto {
   @ApiProperty({ example: 'bdg_elite' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   id!: string;
 
   @ApiProperty({ example: 'Elite' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   name!: string;
 
-  @ApiProperty({ example: 'Unlocked by customers who complete high-value loyalty milestones.' })
+  @ApiPropertyOptional({ example: 'Unlocked by customers who complete high-value loyalty milestones.' })
+  @IsOptional()
   @IsString()
-  description!: string;
+  @MaxLength(2000)
+  description?: string;
 
   @ApiProperty({ example: 4 })
   @IsInt()
@@ -56,11 +62,14 @@ export class UpdateBadgeConfigDto {
   @ApiPropertyOptional({ example: 'Elite' })
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   name?: string;
 
   @ApiPropertyOptional({ example: 'Unlocked by customers who complete high-value loyalty milestones.' })
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @ApiPropertyOptional({ example: 4 })

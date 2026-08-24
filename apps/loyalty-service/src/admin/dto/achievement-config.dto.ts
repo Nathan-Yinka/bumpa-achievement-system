@@ -1,23 +1,31 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsObject, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
 import type { AchievementRule } from '../../rules/rule.types';
 import { ValidateRuleShape } from '../../rules/rule-shape.validator';
 
 export class CreateAchievementConfigDto {
   @ApiProperty({ example: 'ach_20_purchases' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   id!: string;
 
   @ApiProperty({ example: '20 Purchases' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   name!: string;
 
-  @ApiProperty({ example: 'Complete 20 purchases on Bumpa.' })
+  @ApiPropertyOptional({ example: 'Complete 20 purchases on Bumpa.' })
+  @IsOptional()
   @IsString()
-  description!: string;
+  @MaxLength(2000)
+  description?: string;
 
   @ApiProperty({ example: 'purchases' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   groupKey!: string;
 
   @ApiProperty({ example: 4 })
@@ -47,16 +55,20 @@ export class UpdateAchievementConfigDto {
   @ApiPropertyOptional({ example: '20 Purchases' })
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   name?: string;
 
   @ApiPropertyOptional({ example: 'Complete 20 purchases on Bumpa.' })
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @ApiPropertyOptional({ example: 'purchases' })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   groupKey?: string;
 
   @ApiPropertyOptional({ example: 4 })
