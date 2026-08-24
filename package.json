@@ -16,7 +16,7 @@
     "test": "npm run test:unit",
     "test:unit": "jest --runInBand --testPathIgnorePatterns=e2e",
     "test:e2e": "jest --runInBand --testRegex \".*\\.e2e-spec\\.ts$\"",
-    "test:e2e:docker": "sh -c 'PAYMENT_PROVIDER=mock docker compose -p bumpa_e2e up -d --build --pull never && npm run test:e2e; status=$?; docker compose -p bumpa_e2e down -v; exit $status'",
+    "test:e2e:docker": "sh -c 'PAYMENT_PROVIDER=mock docker compose -p bumpa_e2e up -d --build --pull missing && npm run test:e2e; status=$?; docker compose -p bumpa_e2e down -v; exit $status'",
     "format": "prettier --write \"{apps,packages}/**/*.{ts,json,md}\"",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down -v",
