@@ -7,13 +7,14 @@ Event-driven NestJS backend for purchase achievements, badges, and automated cas
 | | |
 |---|---|
 | **API** | [https://bumpa.srv1482983.hstgr.cloud](https://bumpa.srv1482983.hstgr.cloud) — the API gateway, behind a real TLS cert; Swagger docs at [`/docs`](https://bumpa.srv1482983.hstgr.cloud/docs), health at [`/health`](https://bumpa.srv1482983.hstgr.cloud/health). Every request from purchase creation through achievement/badge unlocks and cashback payout goes through here. |
-| **Live event stream** | [http://72.62.192.213:4100](http://72.62.192.213:4100) — a browser dashboard tapping the RabbitMQ event bus over SSE in real time. Open it, then hit the API (e.g. create a purchase), and watch `PurchaseCompleted.v1` → `AchievementUnlocked.v1` / `BadgeUnlocked.v1` → `CashbackProcessed.v1` land as they're published — no polling, no terminal needed. |
+| **Live event stream** | [https://bumpa-events.srv1482983.hstgr.cloud](https://bumpa-events.srv1482983.hstgr.cloud) — a browser dashboard tapping the RabbitMQ event bus over SSE in real time. Open it, then hit the API (e.g. create a purchase), and watch `PurchaseCompleted.v1` → `AchievementUnlocked.v1` / `BadgeUnlocked.v1` → `CashbackProcessed.v1` land as they're published — no polling, no terminal needed. |
 | **Paystack webhook URL** | `https://bumpa.srv1482983.hstgr.cloud/webhooks/paystack` — set this as the Test webhook URL in the Paystack dashboard; Paystack requires `https://`. |
 
 Deployed via GitHub Actions on every push to `main`/`deploy` that passes CI (see `.github/workflows/`).
 Cashback runs against real Paystack in test mode (`sk_test_...`), so transfers hit Paystack's
-sandbox rather than moving real money. The gateway is also reachable directly over plain HTTP at
-`http://72.62.192.213:8090` (same app, no TLS) — the HTTPS subdomain above is only needed because
+sandbox rather than moving real money. Both services are also reachable directly over plain HTTP,
+at `http://72.62.192.213:8090` and `http://72.62.192.213:4100` respectively (same apps, no TLS) —
+the HTTPS subdomains above just wrap them behind real Let's Encrypt certs, mainly because
 Paystack's dashboard requires `https://` for the webhook URL.
 
 **Admin API key** (for the `admin`-tagged endpoints in Swagger — achievement/badge config,
