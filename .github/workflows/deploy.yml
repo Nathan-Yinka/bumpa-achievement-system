@@ -59,7 +59,7 @@ jobs:
       - name: Rsync source to VPS
         run: |
           rsync -az --delete \
-            --exclude '.git' --exclude 'node_modules' --exclude '**/dist' \
+            --exclude '.git' --exclude 'node_modules' --exclude '**/dist' --exclude '.env' \
             ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_APP_DIR }}/"
 
       - name: docker compose up --build on VPS
