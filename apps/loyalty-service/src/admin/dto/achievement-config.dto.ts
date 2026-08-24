@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsInt, IsObject, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 import type { AchievementRule } from '../../rules/rule.types';
+import { ValidateRuleShape } from '../../rules/rule-shape.validator';
 
 export class CreateAchievementConfigDto {
   @ApiProperty({ example: 'ach_20_purchases' })
@@ -10,6 +11,10 @@ export class CreateAchievementConfigDto {
   @ApiProperty({ example: '20 Purchases' })
   @IsString()
   name!: string;
+
+  @ApiProperty({ example: 'Complete 20 purchases on Bumpa.' })
+  @IsString()
+  description!: string;
 
   @ApiProperty({ example: 'purchases' })
   @IsString()
@@ -24,6 +29,7 @@ export class CreateAchievementConfigDto {
     example: { type: 'COUNT', field: 'purchase_count', operator: 'GTE', value: 20 },
   })
   @IsObject()
+  @ValidateRuleShape()
   rule!: AchievementRule;
 
   @ApiPropertyOptional({ example: 'https://cdn.example.com/achievements/20-purchases.png' })
@@ -43,6 +49,11 @@ export class UpdateAchievementConfigDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ example: 'Complete 20 purchases on Bumpa.' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @ApiPropertyOptional({ example: 'purchases' })
   @IsOptional()
   @IsString()
@@ -59,6 +70,7 @@ export class UpdateAchievementConfigDto {
   })
   @IsOptional()
   @IsObject()
+  @ValidateRuleShape()
   rule?: AchievementRule;
 
   @ApiPropertyOptional({ example: 'https://cdn.example.com/achievements/20-purchases.png' })

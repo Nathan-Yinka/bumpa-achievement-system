@@ -11,6 +11,7 @@ export class CreateLoyaltySchema2026082300020 implements MigrationInterface {
         columns: [
           { name: 'id', type: 'varchar', isPrimary: true },
           { name: 'name', type: 'varchar', isNullable: false },
+          { name: 'description', type: 'text', default: "''" },
           { name: 'groupKey', type: 'varchar', isNullable: false },
           { name: 'sortOrder', type: 'integer', isNullable: false },
           { name: 'rule', type: 'jsonb', isNullable: false },
@@ -30,8 +31,12 @@ export class CreateLoyaltySchema2026082300020 implements MigrationInterface {
         columns: [
           { name: 'id', type: 'varchar', isPrimary: true },
           { name: 'name', type: 'varchar', isNullable: false },
+          { name: 'description', type: 'text', default: "''" },
           { name: 'sortOrder', type: 'integer', isNullable: false },
           { name: 'requiredAchievementCount', type: 'integer', isNullable: false },
+          { name: 'requiredAchievementIds', type: 'jsonb', default: "'[]'::jsonb" },
+          { name: 'rewardAmountKobo', type: 'integer', default: 30000 },
+          { name: 'rewardCurrency', type: 'varchar', default: "'NGN'" },
           { name: 'imageUrl', type: 'varchar', isNullable: true },
           { name: 'active', type: 'boolean', default: true },
           { name: 'createdAt', type: 'timestamp with time zone', default: 'now()' },

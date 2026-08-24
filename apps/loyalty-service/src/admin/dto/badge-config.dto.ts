@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 
 export class CreateBadgeConfigDto {
   @ApiProperty({ example: 'bdg_elite' })
@@ -10,6 +10,10 @@ export class CreateBadgeConfigDto {
   @IsString()
   name!: string;
 
+  @ApiProperty({ example: 'Unlocked by customers who complete high-value loyalty milestones.' })
+  @IsString()
+  description!: string;
+
   @ApiProperty({ example: 4 })
   @IsInt()
   @Min(1)
@@ -19,6 +23,23 @@ export class CreateBadgeConfigDto {
   @IsInt()
   @Min(1)
   requiredAchievementCount!: number;
+
+  @ApiPropertyOptional({ example: ['ach_first_purchase', 'ach_5_purchases'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  requiredAchievementIds?: string[];
+
+  @ApiPropertyOptional({ example: 30000 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  rewardAmountKobo?: number;
+
+  @ApiPropertyOptional({ example: 'NGN' })
+  @IsOptional()
+  @IsString()
+  rewardCurrency?: string;
 
   @ApiPropertyOptional({ example: 'https://cdn.example.com/badges/elite.png' })
   @IsOptional()
@@ -37,6 +58,11 @@ export class UpdateBadgeConfigDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ example: 'Unlocked by customers who complete high-value loyalty milestones.' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @ApiPropertyOptional({ example: 4 })
   @IsOptional()
   @IsInt()
@@ -48,6 +74,23 @@ export class UpdateBadgeConfigDto {
   @IsInt()
   @Min(1)
   requiredAchievementCount?: number;
+
+  @ApiPropertyOptional({ example: ['ach_first_purchase', 'ach_5_purchases'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  requiredAchievementIds?: string[];
+
+  @ApiPropertyOptional({ example: 30000 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  rewardAmountKobo?: number;
+
+  @ApiPropertyOptional({ example: 'NGN' })
+  @IsOptional()
+  @IsString()
+  rewardCurrency?: string;
 
   @ApiPropertyOptional({ example: 'https://cdn.example.com/badges/elite.png' })
   @IsOptional()

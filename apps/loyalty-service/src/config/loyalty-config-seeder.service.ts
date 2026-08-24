@@ -15,16 +15,37 @@ export class LoyaltyConfigSeederService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.achievementRepository.save(
-      DEFAULT_ACHIEVEMENTS.map((achievement) =>
-        this.achievementRepository.create({
-          ...achievement,
-          rule: achievement.rule,
-        }),
-      ),
+    // Only inserts achievements/badges that don't exist yet; never touches existing rows.
+    const existingAchievementIds = new Set(
+      (await this.achievementRepository.find({ select: ['id'] })).map((achievement) => achievement.id),
     );
-    await this.badgeRepository.save(
-      DEFAULT_BADGES.map((badge) => this.badgeRepository.create(badge)),
+    const missingAchievements = DEFAULT_ACHIEVEMENTS.filter(
+      (achievement) => !existingAchievementIds.has(achievement.id),
     );
+    if (missingAchievements.length > 0) {
+      await this.achievementRepository.insert(
+        missingAchievements.map((achievement) =>
+          this.achievementRepository.create({
+            ...achievement,
+            rule: achievement.rule,
+          }),
+        ),
+      );
+    }
+
+    const existingBadgeIds = new Set((await this.badgeRepository.find({ select: ['id'] })).map((badge) => badge.id));
+    const missingBadges = DEFAULT_BADGES.filter((badge) => !existingBadgeIds.has(badge.id));
+    if (missingBadges.length > 0) {
+      await this.badgeRepository.insert(
+        missingBadges.map((badge) =>
+          this.badgeRepository.create({
+            ...badge,
+            requiredAchievementIds: badge.requiredAchievementIds ?? [],
+            rewardAmountKobo: badge.rewardAmountKobo ?? 30000,
+            rewardCurrency: badge.rewardCurrency ?? 'NGN',
+          }),
+        ),
+      );
+    }
   }
 }

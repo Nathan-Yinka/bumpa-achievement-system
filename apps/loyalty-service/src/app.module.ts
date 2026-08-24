@@ -15,6 +15,9 @@ import { UserProjection } from './entities/user-projection.entity';
 import { UserStats } from './entities/user-stats.entity';
 import { HealthController } from './health.controller';
 import { LoyaltyModule } from './loyalty/loyalty.module';
+import { AddBadgeAchievementRequirements2026082300040 } from './migrations/2026082300040-AddBadgeAchievementRequirements';
+import { AddConfigDisplayFields2026082300050 } from './migrations/2026082300050-AddConfigDisplayFields';
+import { AddAchievementBadgeIndexes2026082300060 } from './migrations/2026082300060-AddAchievementBadgeIndexes';
 import { CreateLoyaltySchema2026082300020 } from './migrations/2026082300020-CreateLoyaltySchema';
 
 const entities = [
@@ -34,7 +37,12 @@ const entities = [
     TypeOrmModule.forRoot({
       ...getPostgresConfig(EnvKey.LoyaltyDatabaseName),
       entities,
-      migrations: [CreateLoyaltySchema2026082300020],
+      migrations: [
+        CreateLoyaltySchema2026082300020,
+        AddBadgeAchievementRequirements2026082300040,
+        AddConfigDisplayFields2026082300050,
+        AddAchievementBadgeIndexes2026082300060,
+      ],
       migrationsRun: true,
       synchronize: false,
     }),

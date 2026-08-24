@@ -10,6 +10,9 @@ export class AchievementConfig {
   @Column({ unique: true })
   name!: string;
 
+  @Column({ type: 'text', default: '' })
+  description!: string;
+
   @Column()
   groupKey!: string;
 

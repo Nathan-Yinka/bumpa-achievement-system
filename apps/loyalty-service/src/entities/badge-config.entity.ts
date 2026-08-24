@@ -9,11 +9,23 @@ export class BadgeConfig {
   @Column({ unique: true })
   name!: string;
 
+  @Column({ type: 'text', default: '' })
+  description!: string;
+
   @Column('int')
   sortOrder!: number;
 
   @Column('int')
   requiredAchievementCount!: number;
+
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  requiredAchievementIds!: string[];
+
+  @Column('int', { default: 30000 })
+  rewardAmountKobo!: number;
+
+  @Column({ default: 'NGN' })
+  rewardCurrency!: string;
 
   @Column({ nullable: true })
   imageUrl?: string;

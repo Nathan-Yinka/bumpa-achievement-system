@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   createDomainEvent,
@@ -38,6 +38,8 @@ interface BadgeState {
 
 @Injectable()
 export class LoyaltyService {
+  private readonly logger = new Logger(LoyaltyService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(AchievementConfig)
@@ -95,50 +97,70 @@ export class LoyaltyService {
       });
       const existingAchievementIds = new Set(existingAchievements.map((item) => item.achievementId));
 
-      for (const config of configs) {
-        if (existingAchievementIds.has(config.id)) {
-          continue;
+      const brokenAchievementIds = new Set<string>();
+      let unlockedInPass = false;
+      do {
+        unlockedInPass = false;
+        for (const config of configs) {
+          if (existingAchievementIds.has(config.id) || brokenAchievementIds.has(config.id)) {
+            continue;
+          }
+
+          let unlocked: boolean;
+          try {
+            unlocked = this.ruleEngine.evaluate(config.rule, {
+              purchaseCount: stats.purchaseCount,
+              totalSpendKobo: stats.totalSpendKobo,
+              unlockedAchievementIds: existingAchievementIds,
+            });
+          } catch (error) {
+            // Skip this achievement and keep processing the rest of the purchase.
+            brokenAchievementIds.add(config.id);
+            this.logger.error(
+              `Skipping achievement "${config.id}" for user ${event.payload.userId}: rule evaluation failed - ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              error instanceof Error ? error.stack : undefined,
+            );
+            continue;
+          }
+          if (!unlocked) {
+            continue;
+          }
+
+          await manager.save(
+            UserAchievement,
+            manager.create(UserAchievement, {
+              id: createReadableId(EntityIdPrefix.UserAchievement),
+              userId: event.payload.userId,
+              achievementId: config.id,
+            }),
+          );
+          existingAchievementIds.add(config.id);
+          unlockedInPass = true;
+
+          const achievementEvent: AchievementUnlockedEvent = createDomainEvent(
+            DomainEventName.AchievementUnlocked,
+            {
+              achievement_name: config.name,
+              user: event.payload.user,
+            },
+            event.correlationId,
+            createReadableId(EntityIdPrefix.Event),
+          );
+
+          await manager.save(
+            OutboxEvent,
+            manager.create(OutboxEvent, {
+              id: achievementEvent.eventId,
+              eventType: achievementEvent.type,
+              routingKey: achievementEvent.type,
+              payload: achievementEvent,
+            }),
+          );
+          outboxEventIds.push(achievementEvent.eventId);
         }
-
-        const unlocked = this.ruleEngine.evaluate(config.rule, {
-          purchaseCount: stats.purchaseCount,
-          totalSpendKobo: stats.totalSpendKobo,
-        });
-        if (!unlocked) {
-          continue;
-        }
-
-        await manager.save(
-          UserAchievement,
-          manager.create(UserAchievement, {
-            id: createReadableId(EntityIdPrefix.UserAchievement),
-            userId: event.payload.userId,
-            achievementId: config.id,
-          }),
-        );
-        existingAchievementIds.add(config.id);
-
-        const achievementEvent: AchievementUnlockedEvent = createDomainEvent(
-          DomainEventName.AchievementUnlocked,
-          {
-            achievementName: config.name,
-            user: event.payload.user,
-          },
-          event.correlationId,
-          createReadableId(EntityIdPrefix.Event),
-        );
-
-        await manager.save(
-          OutboxEvent,
-          manager.create(OutboxEvent, {
-            id: achievementEvent.eventId,
-            eventType: achievementEvent.type,
-            routingKey: achievementEvent.type,
-            payload: achievementEvent,
-          }),
-        );
-        outboxEventIds.push(achievementEvent.eventId);
-      }
+      } while (unlockedInPass);
 
       outboxEventIds.push(...(await this.unlockBadges(manager, event)));
 
@@ -175,7 +197,7 @@ export class LoyaltyService {
       .filter((achievement): achievement is AchievementConfig => Boolean(achievement))
       .map((achievement) => achievement.name);
 
-    const badgeState = await this.getBadgeState(userId, unlockedAchievements.length);
+    const badgeState = await this.getBadgeState(userId, unlockedAchievements.length, unlockedAchievementIds);
 
     return {
       unlocked_achievements: unlockedAchievements.map((item) => item.achievement.name),
@@ -188,9 +210,11 @@ export class LoyaltyService {
 
   private async unlockBadges(manager: EntityManager, event: PurchaseCompletedEvent): Promise<string[]> {
     const outboxEventIds: string[] = [];
-    const achievementCount = await manager.count(UserAchievement, {
+    const unlockedAchievements = await manager.find(UserAchievement, {
       where: { userId: event.payload.userId },
     });
+    const unlockedAchievementIds = new Set(unlockedAchievements.map((achievement) => achievement.achievementId));
+    const achievementCount = unlockedAchievements.length;
     const badges = await manager.find(BadgeConfig, {
       where: { active: true },
       order: { sortOrder: 'ASC' },
@@ -201,7 +225,7 @@ export class LoyaltyService {
     const existingBadgeIds = new Set(existingBadges.map((item) => item.badgeId));
 
     for (const badge of badges) {
-      if (existingBadgeIds.has(badge.id) || achievementCount < badge.requiredAchievementCount) {
+      if (existingBadgeIds.has(badge.id) || !this.meetsBadgeRequirement(badge, achievementCount, unlockedAchievementIds)) {
         continue;
       }
 
@@ -218,7 +242,9 @@ export class LoyaltyService {
       const badgeEvent: BadgeUnlockedEvent = createDomainEvent(
         DomainEventName.BadgeUnlocked,
         {
-          badgeName: badge.name,
+          badge_name: badge.name,
+          rewardAmountKobo: badge.rewardAmountKobo,
+          rewardCurrency: badge.rewardCurrency,
           user: event.payload.user,
         },
         event.correlationId,
@@ -240,7 +266,11 @@ export class LoyaltyService {
     return outboxEventIds;
   }
 
-  private async getBadgeState(userId: string, achievementCount: number): Promise<BadgeState> {
+  private async getBadgeState(
+    userId: string,
+    achievementCount: number,
+    unlockedAchievementIds: ReadonlySet<string>,
+  ): Promise<BadgeState> {
     const unlockedBadges = await this.userBadgeRepository.find({
       where: { userId },
       relations: { badge: true },
@@ -255,13 +285,28 @@ export class LoyaltyService {
       order: { sortOrder: 'ASC' },
     });
     const nextBadge = badges.find((badge) => !unlockedBadgeIds.has(badge.id));
+    const missingRequiredAchievementCount = nextBadge
+      ? nextBadge.requiredAchievementIds.filter((achievementId) => !unlockedAchievementIds.has(achievementId)).length
+      : 0;
 
     return {
       currentBadge: current?.name ?? '',
       nextBadge: nextBadge?.name ?? '',
       remainingToUnlockNextBadge: nextBadge
-        ? Math.max(nextBadge.requiredAchievementCount - achievementCount, 0)
+        ? Math.max(nextBadge.requiredAchievementCount - achievementCount, missingRequiredAchievementCount, 0)
         : 0,
     };
+  }
+
+  private meetsBadgeRequirement(
+    badge: BadgeConfig,
+    achievementCount: number,
+    unlockedAchievementIds: ReadonlySet<string>,
+  ): boolean {
+    const hasEnoughAchievements = achievementCount >= badge.requiredAchievementCount;
+    const hasRequiredAchievements = badge.requiredAchievementIds.every((achievementId) =>
+      unlockedAchievementIds.has(achievementId),
+    );
+    return hasEnoughAchievements && hasRequiredAchievements;
   }
 }

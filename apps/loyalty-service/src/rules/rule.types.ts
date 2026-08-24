@@ -20,9 +20,16 @@ export interface CombinationRule {
   rules: AchievementRule[];
 }
 
-export type AchievementRule = CountRule | SumRule | CombinationRule;
+export interface AchievementSetRule {
+  type: 'ACHIEVEMENT_SET';
+  achievementIds: string[];
+  minRequired?: number;
+}
+
+export type AchievementRule = CountRule | SumRule | CombinationRule | AchievementSetRule;
 
 export interface RuleContext {
   purchaseCount: number;
   totalSpendKobo: number;
+  unlockedAchievementIds?: ReadonlySet<string>;
 }
