@@ -1,11 +1,19 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import type { JsonObject, JsonValue } from '@bumpa/events-sdk';
-import { CORRELATION_ID_HEADER } from '@bumpa/logger-sdk';
-import { ApiWrappedOkResponse } from './common/api-response.decorator';
+import type { JsonValue } from '@bumpa/events-sdk';
+import type { Request } from 'express';
+import { ApiWrappedCreatedResponse, ApiWrappedOkResponse } from './common/api-response.decorator';
+import { ApiKeyGuard } from './common/api-key.guard';
+import { CreateAchievementConfigDto, UpdateAchievementConfigDto } from './dto/achievement-config.dto';
+import { CreateBadgeConfigDto, UpdateBadgeConfigDto } from './dto/badge-config.dto';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
+import { ListAchievementsQueryDto, ListBadgesQueryDto, ListCashbacksQueryDto } from './dto/list-query.dto';
+import { RetryCashbackDto } from './dto/retry-cashback.dto';
+import { AchievementIdParamDto, BadgeIdParamDto, CashbackIdParamDto, UserIdParamDto } from './dto/safe-id-param.dto';
 import { MicroserviceHttpClient } from './http/microservice-http-client.service';
 import { MicroserviceName } from './http/microservice.enum';
+
+type CorrelatedRequest = Request & { correlationId: string };
 
 @ApiTags('gateway')
 @Controller()
@@ -13,122 +21,157 @@ export class GatewayController {
   constructor(private readonly httpClient: MicroserviceHttpClient) {}
 
   @Post('purchases')
-  @ApiWrappedOkResponse('Creates a purchase and starts achievement processing.')
-  async createPurchase(
-    @Body() dto: CreatePurchaseDto,
-    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
-  ): Promise<JsonValue> {
+  @ApiWrappedCreatedResponse('Creates a purchase and starts achievement processing.')
+  async createPurchase(@Body() dto: CreatePurchaseDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Purchase,
       method: 'POST',
       path: '/purchases',
       body: dto,
-      correlationId,
+      correlationId: req.correlationId,
     });
   }
 
   @Get('users/:userId/achievements')
   @ApiWrappedOkResponse('Returns unlocked achievements, next achievements, and badge progress.')
-  async getAchievements(@Param('userId') userId: string): Promise<JsonValue> {
+  async getAchievements(@Param() params: UserIdParamDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'GET',
-      path: `/internal/users/${userId}/achievements`,
+      path: `/internal/users/${params.userId}/achievements`,
+      correlationId: req.correlationId,
     });
   }
 
   @Get('admin/achievements')
-  @ApiWrappedOkResponse('Lists configured achievements.')
-  async getAchievementConfigs(@Headers(CORRELATION_ID_HEADER) correlationId?: string): Promise<JsonValue> {
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedOkResponse('Lists configured achievements (paginated).')
+  async getAchievementConfigs(@Query() query: ListAchievementsQueryDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'GET',
       path: '/admin/achievements',
-      correlationId,
+      query,
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Get('admin/catalog')
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedOkResponse('Lists badges with their linked achievement requirements and reward metadata.')
+  async getLoyaltyCatalog(@Req() req: CorrelatedRequest): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Loyalty,
+      method: 'GET',
+      path: '/admin/catalog',
+      correlationId: req.correlationId,
     });
   }
 
   @Post('admin/achievements')
-  @ApiWrappedOkResponse('Creates an achievement configuration.')
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedCreatedResponse('Creates an achievement configuration.')
   async createAchievementConfig(
-    @Body() body: JsonObject,
-    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+    @Body() body: CreateAchievementConfigDto,
+    @Req() req: CorrelatedRequest,
   ): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'POST',
       path: '/admin/achievements',
       body,
-      correlationId,
+      correlationId: req.correlationId,
     });
   }
 
   @Patch('admin/achievements/:id')
+  @UseGuards(ApiKeyGuard)
   @ApiWrappedOkResponse('Updates an achievement configuration.')
   async updateAchievementConfig(
-    @Param('id') id: string,
-    @Body() body: JsonObject,
-    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+    @Param() params: AchievementIdParamDto,
+    @Body() body: UpdateAchievementConfigDto,
+    @Req() req: CorrelatedRequest,
   ): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'PATCH',
-      path: `/admin/achievements/${id}`,
+      path: `/admin/achievements/${params.id}`,
       body,
-      correlationId,
+      correlationId: req.correlationId,
     });
   }
 
   @Get('admin/badges')
-  @ApiWrappedOkResponse('Lists configured badges.')
-  async getBadgeConfigs(@Headers(CORRELATION_ID_HEADER) correlationId?: string): Promise<JsonValue> {
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedOkResponse('Lists configured badges (paginated).')
+  async getBadgeConfigs(@Query() query: ListBadgesQueryDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'GET',
       path: '/admin/badges',
-      correlationId,
+      query,
+      correlationId: req.correlationId,
     });
   }
 
   @Post('admin/badges')
-  @ApiWrappedOkResponse('Creates a badge configuration.')
-  async createBadgeConfig(
-    @Body() body: JsonObject,
-    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
-  ): Promise<JsonValue> {
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedCreatedResponse('Creates a badge configuration.')
+  async createBadgeConfig(@Body() body: CreateBadgeConfigDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'POST',
       path: '/admin/badges',
       body,
-      correlationId,
+      correlationId: req.correlationId,
     });
   }
 
   @Patch('admin/badges/:id')
+  @UseGuards(ApiKeyGuard)
   @ApiWrappedOkResponse('Updates a badge configuration.')
   async updateBadgeConfig(
-    @Param('id') id: string,
-    @Body() body: JsonObject,
-    @Headers(CORRELATION_ID_HEADER) correlationId?: string,
+    @Param() params: BadgeIdParamDto,
+    @Body() body: UpdateBadgeConfigDto,
+    @Req() req: CorrelatedRequest,
   ): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Loyalty,
       method: 'PATCH',
-      path: `/admin/badges/${id}`,
+      path: `/admin/badges/${params.id}`,
       body,
-      correlationId,
+      correlationId: req.correlationId,
     });
   }
 
   @Get('cashbacks')
-  @ApiWrappedOkResponse('Lists cashback transactions for observability and e2e verification.')
-  async listCashbacks(@Headers(CORRELATION_ID_HEADER) correlationId?: string): Promise<JsonValue> {
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedOkResponse('Lists cashback transactions, paginated and filterable.')
+  async listCashbacks(@Query() query: ListCashbacksQueryDto, @Req() req: CorrelatedRequest): Promise<JsonValue> {
     return this.httpClient.forward({
       service: MicroserviceName.Cashback,
       method: 'GET',
       path: '/cashbacks',
-      correlationId,
+      query,
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Post('cashbacks/:id/retry')
+  @HttpCode(200)
+  @UseGuards(ApiKeyGuard)
+  @ApiWrappedOkResponse('Resumes a FAILED cashback transaction, optionally with updated bank details.')
+  async retryCashback(
+    @Param() params: CashbackIdParamDto,
+    @Body() body: RetryCashbackDto,
+    @Req() req: CorrelatedRequest,
+  ): Promise<JsonValue> {
+    return this.httpClient.forward({
+      service: MicroserviceName.Cashback,
+      method: 'POST',
+      path: `/cashbacks/${params.id}/retry`,
+      body,
+      correlationId: req.correlationId,
     });
   }
 }

@@ -1,7 +1,10 @@
-import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosError, type AxiosInstance, type Method } from 'axios';
 import type { JsonValue } from '@bumpa/events-sdk';
 import { CORRELATION_ID_HEADER } from '@bumpa/logger-sdk';
+import { AppException } from '../common/app-exception';
+import { ErrorCode } from '../common/error-code.enum';
+import { EnvKey, getNumberEnv } from '../config/env';
 import { MicroserviceName } from './microservice.enum';
 import { ServiceRouteResolver } from './service-route.resolver';
 
@@ -10,6 +13,7 @@ interface ForwardRequest {
   method: Method;
   path: string;
   body?: object;
+  query?: object;
   correlationId?: string;
 }
 
@@ -21,21 +25,21 @@ export class MicroserviceHttpClient {
   private readonly retryDelayMs = 150;
 
   constructor(private readonly routeResolver: ServiceRouteResolver) {
-    this.client = axios.create({ timeout: 5000 });
+    this.client = axios.create({ timeout: getNumberEnv(EnvKey.MicroserviceHttpTimeoutMs, 5000) });
   }
 
   /** Forwards gateway traffic while preserving correlation IDs and downstream status codes. */
   async forward<TResponse extends JsonValue = JsonValue>(request: ForwardRequest): Promise<TResponse> {
     const url = this.routeResolver.resolve(request.service, request.path);
-    let attempt = 0;
 
-    while (attempt <= this.readRetries) {
+    for (let attempt = 0; ; attempt += 1) {
       const startedAt = Date.now();
       try {
         const response = await this.client.request<TResponse>({
           url,
           method: request.method,
           data: request.body,
+          params: request.query,
           headers: {
             'content-type': 'application/json',
             ...(request.correlationId ? { [CORRELATION_ID_HEADER]: request.correlationId } : {}),
@@ -51,12 +55,9 @@ export class MicroserviceHttpClient {
           throw this.toHttpException(caughtError);
         }
 
-        attempt += 1;
-        await this.delay(this.retryDelayMs * attempt);
+        await this.delay(this.retryDelayMs * (attempt + 1));
       }
     }
-
-    throw new HttpException('Downstream service is unavailable', 502);
   }
 
   private shouldRetry(method: Method, attempt: number, error: Error): boolean {
@@ -83,7 +84,11 @@ export class MicroserviceHttpClient {
       return new HttpException(this.toHttpExceptionResponse(error.response.data as JsonValue), error.response.status);
     }
 
-    return new HttpException('Downstream service is unavailable', 502);
+    // No response reached the gateway (timeout, connection refused, DNS failure, etc.).
+    return new AppException('Downstream service is unavailable', {
+      status: HttpStatus.BAD_GATEWAY,
+      errorCode: ErrorCode.DownstreamUnavailable,
+    });
   }
 
   private delay(ms: number): Promise<void> {
