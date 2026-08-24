@@ -6,12 +6,15 @@ Event-driven NestJS backend for purchase achievements, badges, and automated cas
 
 | | |
 |---|---|
-| **API** | [http://72.62.192.213:8090](http://72.62.192.213:8090) — the API gateway; Swagger docs at [`/docs`](http://72.62.192.213:8090/docs), health at [`/health`](http://72.62.192.213:8090/health). Every request from purchase creation through achievement/badge unlocks and cashback payout goes through here. |
+| **API** | [https://bumpa.srv1482983.hstgr.cloud](https://bumpa.srv1482983.hstgr.cloud) — the API gateway, behind a real TLS cert; Swagger docs at [`/docs`](https://bumpa.srv1482983.hstgr.cloud/docs), health at [`/health`](https://bumpa.srv1482983.hstgr.cloud/health). Every request from purchase creation through achievement/badge unlocks and cashback payout goes through here. |
 | **Live event stream** | [http://72.62.192.213:4100](http://72.62.192.213:4100) — a browser dashboard tapping the RabbitMQ event bus over SSE in real time. Open it, then hit the API (e.g. create a purchase), and watch `PurchaseCompleted.v1` → `AchievementUnlocked.v1` / `BadgeUnlocked.v1` → `CashbackProcessed.v1` land as they're published — no polling, no terminal needed. |
+| **Paystack webhook URL** | `https://bumpa.srv1482983.hstgr.cloud/webhooks/paystack` — set this as the Test webhook URL in the Paystack dashboard; Paystack requires `https://`. |
 
 Deployed via GitHub Actions on every push to `main`/`deploy` that passes CI (see `.github/workflows/`).
 Cashback runs against real Paystack in test mode (`sk_test_...`), so transfers hit Paystack's
-sandbox rather than moving real money.
+sandbox rather than moving real money. The gateway is also reachable directly over plain HTTP at
+`http://72.62.192.213:8090` (same app, no TLS) — the HTTPS subdomain above is only needed because
+Paystack's dashboard requires `https://` for the webhook URL.
 
 **Admin API key** (for the `admin`-tagged endpoints in Swagger — achievement/badge config,
 achievement groups, listing cashback transactions): send it as the `x-api-key` header.
